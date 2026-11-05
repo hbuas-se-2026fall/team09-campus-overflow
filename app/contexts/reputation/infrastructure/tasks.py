@@ -23,21 +23,22 @@ from typing import Any
 from uuid import UUID
 
 import asyncpg  # type: ignore[import-untyped]  # asyncpg 无 py.typed，mypy strict 下豁免
-from sqlalchemy import pool
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config.settings import get_settings
 from app.contexts.reputation.application.apply_reputation import (
-    AcceptEventPayload,
-    VoteEventPayload,
     apply_accept_event,
     apply_vote_event,
+)
+from app.contexts.reputation.application.ports import (
+    AcceptEventPayload,
+    VoteEventPayload,
 )
 from app.contexts.reputation.infrastructure.celery_app import celery_app
 from app.contexts.reputation.infrastructure.repository import (
     SqlAlchemyReputationLedgerRepository,
 )
+from app.shared.engine import build_engine
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +46,13 @@ _worker_session_factory: async_sessionmaker[Any] | None = None
 
 
 def _get_worker_session_factory() -> async_sessionmaker[Any]:
-    """worker 专用会话工厂：独立 NullPool 引擎（进程内缓存，跨 loop 安全）。"""
+    """worker 专用会话工厂：独立 NullPool 引擎（进程内缓存，跨 loop 安全）。
+
+    引擎构建与 HTTP 侧共用 shared.engine.build_engine，连接/超时参数单源。
+    """
     global _worker_session_factory
     if _worker_session_factory is None:
-        settings = get_settings()
-        engine = create_async_engine(
-            settings.database_url,
-            poolclass=pool.NullPool,
-            connect_args={
-                "timeout": settings.db_connect_timeout,
-                "server_settings": {
-                    "statement_timeout": str(settings.db_statement_timeout_ms),
-                    "lock_timeout": str(settings.db_lock_timeout_ms),
-                },
-            },
-        )
+        engine = build_engine(force_null_pool=True)
         _worker_session_factory = async_sessionmaker(engine, expire_on_commit=False)
         logger.info("worker 专用 NullPool 引擎已创建")
     return _worker_session_factory

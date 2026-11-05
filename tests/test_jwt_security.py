@@ -13,12 +13,13 @@ from uuid import uuid4
 
 from jose import jwt
 
+from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
 from app.contexts.identity.domain.user import User
 from app.contexts.identity.domain.value_objects import Email, PasswordHash
 from app.contexts.identity.infrastructure.token_service import JwtTokenService
 
 SECRET = "test-secret"
-service = JwtTokenService(SECRET)
+service = JwtTokenService(SECRET, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL)
 
 
 def _user() -> User:

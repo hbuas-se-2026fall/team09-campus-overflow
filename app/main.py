@@ -5,7 +5,11 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 from app.config.settings import get_settings
+from app.contexts.identity.interfaces.api.error_mapping import (
+    register_identity_error_handlers,
+)
 from app.contexts.identity.interfaces.api.routes import router as auth_router
+from app.contexts.qa.interfaces.api.error_mapping import register_qa_error_handlers
 from app.contexts.qa.interfaces.api.routes import answers_router as qa_answers_router
 from app.contexts.qa.interfaces.api.routes import router as qa_router
 from app.contexts.qa.interfaces.api.routes import tags_router as qa_tags_router
@@ -38,6 +42,9 @@ def create_app() -> FastAPI:
     # connect_args timeout 到期）——第六路实测的 503 分层缺口；池排队超时仍由更具体的
     # sqlalchemy.exc.TimeoutError 命中（MRO 先精确）
     application.add_exception_handler(TimeoutError, db_unavailable_handler)
+    # 领域错误 → HTTP 状态码：每上下文各自拥有映射表，此处只做组装
+    register_identity_error_handlers(application)
+    register_qa_error_handlers(application)
     application.include_router(auth_router)
     application.include_router(qa_router)
     application.include_router(qa_answers_router)

@@ -1,28 +1,49 @@
-"""reputation 应用层端口：domain 定义接口，infrastructure 实现（分支 4）。"""
+"""reputation 应用层端口与跨上下文事件契约。
+
+- VoteEventPayload / AcceptEventPayload：跨上下文已发布语言（qa 侧按字段构造，
+  reputation 侧消费），保证 reputation 对 qa **0 import**。
+- EventPublisher：出站端口，Celery 适配器在 infrastructure 实现；
+  投递时机（commit 后）由 interfaces 层的延迟门面负责，端口本身不感知框架。
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from app.contexts.reputation.domain.ledger import LedgerEntry
+
+@dataclass(frozen=True, slots=True)
+class VoteEventPayload:
+    """投票事件 DTO（来源：qa VoteCast 字段映射；字段一一对应）。"""
+
+    vote_id: UUID
+    user_id: UUID
+    target_type: str
+    target_id: UUID
+    direction: str
+    target_author_id: UUID
+    occurred_at: datetime
 
 
-class ReputationLedgerRepository(Protocol):
-    """声誉账本持久化端口（US-REP01/REP02）。"""
+@dataclass(frozen=True, slots=True)
+class AcceptEventPayload:
+    """采纳事件 DTO（来源：qa AnswerAccepted 字段映射）。"""
 
-    async def append_if_absent(self, user_id: UUID, entry: LedgerEntry) -> bool:
-        """追加流水行；同 (source, event_id) 已存在时不写并返回 False（幂等）。
+    event_id: UUID
+    answer_id: UUID
+    answer_author_id: UUID
+    occurred_at: datetime
 
-        库级兜底：唯一索引 (source, event_id) + ON CONFLICT DO NOTHING——
-        并发双投递也恰落一行（返回 True 恰一次）。
-        """
+
+class EventPublisher(Protocol):
+    """声誉事件发布端口：application 定义，infrastructure 提供实现。"""
+
+    def publish_vote(self, payload: VoteEventPayload) -> None:
+        """投递投票事件（reputation.apply_vote_delta）。"""
         ...
 
-    async def total(self, user_id: UUID) -> int:
-        """账面声誉值（流水累加；无流水返回 0）。"""
-        ...
-
-    async def entries_desc(self, user_id: UUID) -> list[LedgerEntry]:
-        """流水按 occurred_at 倒序（Gherkin 功能域 11 场景 3）。"""
+    def publish_accept(self, payload: AcceptEventPayload) -> None:
+        """投递采纳事件（reputation.apply_accept_bonus）。"""
         ...

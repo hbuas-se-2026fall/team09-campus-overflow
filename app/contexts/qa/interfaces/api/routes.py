@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime
-from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.contexts.identity.interfaces.api.deps import CurrentUser
 from app.contexts.qa.application.accept_use_case import AcceptAnswerUseCase
@@ -31,23 +27,15 @@ from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQ
 from app.contexts.qa.application.vote_use_case import VoteOnUseCase
 from app.contexts.qa.domain.answer import AnswerAccepted
 from app.contexts.qa.domain.comment import Comment, CommentTarget
-from app.contexts.qa.domain.errors import (
-    AlreadyVotedError,
-    AnswerAlreadyAcceptedError,
-    AnswerNotFoundError,
-    NotQuestionAuthorError,
-    QuestionAlreadyClosedError,
-    QuestionClosedError,
-    QuestionNotFoundError,
-)
+from app.contexts.qa.domain.question import Question
 from app.contexts.qa.domain.repository import QuestionSort
 from app.contexts.qa.domain.vote import VoteCast, VoteDirection, VoteTarget
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyAnswerRepository,
-    SqlAlchemyCommentRepository,
-    SqlAlchemyQuestionRepository,
-    SqlAlchemyTagCatalogRepository,
-    SqlAlchemyVoteRepository,
+from app.contexts.qa.interfaces.api.deps import (
+    AnswerRepo,
+    CommentRepo,
+    QuestionRepo,
+    TagCatalogRepo,
+    VoteRepo,
 )
 from app.contexts.qa.interfaces.api.schemas import (
     AnswerResponse,
@@ -63,11 +51,11 @@ from app.contexts.qa.interfaces.api.schemas import (
     TagListResponse,
     VoteRequest,
 )
-from app.contexts.reputation.interfaces.publisher import (
-    publish_accept_event,
-    publish_vote_event,
+from app.contexts.reputation.application.ports import (
+    AcceptEventPayload,
+    VoteEventPayload,
 )
-from app.shared.engine import get_session
+from app.contexts.reputation.interfaces.publisher import EventPublisherDep
 
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 answers_router = APIRouter(prefix="/api/v1/answers", tags=["answers"])
@@ -83,11 +71,10 @@ tags_router = APIRouter(prefix="/api/v1/tags", tags=["tags"])
 async def ask_question(
     payload: AskQuestionRequest,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    tags: TagCatalogRepo,
 ) -> QuestionResponse:
-    use_case = AskQuestionUseCase(
-        SqlAlchemyQuestionRepository(session), SqlAlchemyTagCatalogRepository(session)
-    )
+    use_case = AskQuestionUseCase(questions, tags)
     try:
         question = await use_case.execute(
             AskQuestionCommand(
@@ -102,16 +89,7 @@ async def ask_question(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    return QuestionResponse(
-        id=question.id,
-        title=question.title.value,
-        body=question.body.value,
-        author_id=question.author_id,
-        created_at=question.created_at,
-        # 与 GET 装配序一致（规范名码点序，_tags_for 同口径）
-        tags=sorted(t.value for t in question.tags),
-        status=question.status,
-    )
+    return _question_response(question)
 
 
 @router.get(
@@ -120,16 +98,16 @@ async def ask_question(
     summary="问题列表（访客可用，默认按发布时间新→旧，可按净票数排序）",
 )
 async def list_questions(
+    questions: QuestionRepo,
     page: int = Query(default=1, ge=1, description="页码，从 1 起"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，上限 100（S-05）"),
     sort: QuestionSort = Query(
         default=QuestionSort.LATEST,
         description="排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）",
     ),
-    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> QuestionListResponse:
     # sort 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07 迭代 2 收紧）
-    use_case = ListQuestionsUseCase(SqlAlchemyQuestionRepository(session))
+    use_case = ListQuestionsUseCase(questions)
     result = await use_case.execute(
         ListQuestionsQuery(page=page, page_size=page_size, sort=sort)
     )
@@ -159,13 +137,11 @@ async def list_questions(
 )
 async def get_question(
     question_id: UUID,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
 ) -> QuestionDetailResponse:
-    use_case = GetQuestionUseCase(
-        SqlAlchemyQuestionRepository(session),
-        SqlAlchemyAnswerRepository(session),
-        SqlAlchemyCommentRepository(session),
-    )
+    use_case = GetQuestionUseCase(questions, answers, comments)
     view = await use_case.execute(GetQuestionQuery(question_id=question_id))
     if view is None:
         # S-10：只回业务语义，不泄露内部信息
@@ -213,9 +189,9 @@ async def edit_question(
     question_id: UUID,
     payload: EditQuestionRequest,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
 ) -> QuestionResponse:
-    use_case = EditQuestionUseCase(SqlAlchemyQuestionRepository(session))
+    use_case = EditQuestionUseCase(questions)
     try:
         question = await use_case.execute(
             EditQuestionCommand(
@@ -225,23 +201,21 @@ async def edit_question(
                 body=payload.body,
             )
         )
-    except QuestionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except NotQuestionAuthorError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except QuestionClosedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:  # Title/Body 值对象兜底校验（字符串形 422）
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+    return _question_response(question)
+
+
+def _question_response(question: Question) -> QuestionResponse:
+    """问题白名单响应唯一装配处（创建/编辑复用，tags 统一码点序）。"""
     return QuestionResponse(
         id=question.id,
         title=question.title.value,
         body=question.body.value,
         author_id=question.author_id,
         created_at=question.created_at,
-        # 与 GET 装配序一致（规范名码点序）
         tags=sorted(t.value for t in question.tags),
         status=question.status,
     )
@@ -255,19 +229,10 @@ async def edit_question(
 async def close_question(
     question_id: UUID,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
 ) -> Response:
-    use_case = CloseQuestionUseCase(SqlAlchemyQuestionRepository(session))
-    try:
-        await use_case.execute(
-            CloseQuestionCommand(question_id=question_id, actor_id=user.id)
-        )
-    except QuestionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except NotQuestionAuthorError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except (QuestionAlreadyClosedError, AnswerAlreadyAcceptedError) as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    use_case = CloseQuestionUseCase(questions)
+    await use_case.execute(CloseQuestionCommand(question_id=question_id, actor_id=user.id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -281,11 +246,10 @@ async def post_answer(
     question_id: UUID,
     payload: PostAnswerRequest,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
 ) -> AnswerResponse:
-    use_case = PostAnswerUseCase(
-        SqlAlchemyQuestionRepository(session), SqlAlchemyAnswerRepository(session)
-    )
+    use_case = PostAnswerUseCase(questions, answers)
     try:
         answer = await use_case.execute(
             PostAnswerCommand(
@@ -294,10 +258,6 @@ async def post_answer(
                 author_id=user.id,  # 作者只取令牌，绝不取自请求体
             )
         )
-    except QuestionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except QuestionClosedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:  # Body 值对象兜底校验
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -318,35 +278,26 @@ async def _vote(
     target_id: UUID,
     payload: VoteRequest,
     user_id: UUID,
-    session: AsyncSession,
-    background_tasks: BackgroundTasks,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    votes: VoteRepo,
+    publisher: EventPublisherDep,
 ) -> Response:
     """两个投票端点共用：成功 204；目标不存在 404；重复票（含改票）409。
 
-    成功后经声誉发布面投递 VoteCast（BackgroundTasks：scope="function" 下 commit
-    先于响应发送，发布时数据已落库——发布时序探针 R-07 实证，ADR-004）。
+    成功后经声誉发布端口投递 VoteCast（延迟门面：scope="function" 下 commit
+    先于响应发送，实际 .delay 在响应后执行——发布时序探针 R-07 实证，ADR-004）。
     """
-    use_case = VoteOnUseCase(
-        SqlAlchemyQuestionRepository(session),
-        SqlAlchemyAnswerRepository(session),
-        SqlAlchemyVoteRepository(session),
-    )
-    try:
-        result = await use_case.execute(
-            VoteOnCommand(
-                target_type=target_type,
-                target_id=target_id,
-                direction=VoteDirection(payload.direction),
-                user_id=user_id,
-            )
+    use_case = VoteOnUseCase(questions, answers, votes)
+    result = await use_case.execute(
+        VoteOnCommand(
+            target_type=target_type,
+            target_id=target_id,
+            direction=VoteDirection(payload.direction),
+            user_id=user_id,
         )
-    except (QuestionNotFoundError, AnswerNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except QuestionClosedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except AlreadyVotedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    publish_vote_event(background_tasks, _event_payload(result.event))
+    )
+    publisher.publish_vote(_vote_payload(result.event))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -359,11 +310,20 @@ async def vote_question(
     question_id: UUID,
     payload: VoteRequest,
     user: CurrentUser,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    votes: VoteRepo,
+    publisher: EventPublisherDep,
 ) -> Response:
     return await _vote(
-        VoteTarget.QUESTION, question_id, payload, user.id, session, background_tasks
+        VoteTarget.QUESTION,
+        question_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        votes,
+        publisher,
     )
 
 
@@ -377,12 +337,21 @@ async def vote_answer(
     answer_id: UUID,
     payload: VoteRequest,
     user: CurrentUser,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    votes: VoteRepo,
+    publisher: EventPublisherDep,
 ) -> Response:
     # 路径嵌套仅为可读性；回答存在性由 answer_id 定位（question_id 不参与查询）
     return await _vote(
-        VoteTarget.ANSWER, answer_id, payload, user.id, session, background_tasks
+        VoteTarget.ANSWER,
+        answer_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        votes,
+        publisher,
     )
 
 
@@ -391,14 +360,12 @@ async def _create_comment(
     target_id: UUID,
     payload: CommentRequest,
     user_id: UUID,
-    session: AsyncSession,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
 ) -> CommentResponse:
     """题评/答评端点共用：成功 201 + 白名单；目标不存在 404；正文兜底 422。"""
-    use_case = CreateCommentUseCase(
-        SqlAlchemyQuestionRepository(session),
-        SqlAlchemyAnswerRepository(session),
-        SqlAlchemyCommentRepository(session),
-    )
+    use_case = CreateCommentUseCase(questions, answers, comments)
     try:
         comment = await use_case.execute(
             CreateCommentCommand(
@@ -408,10 +375,6 @@ async def _create_comment(
                 author_id=user_id,  # 作者只取令牌，绝不取自请求体
             )
         )
-    except (QuestionNotFoundError, AnswerNotFoundError) as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except QuestionClosedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:  # Body 值对象兜底校验
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -429,9 +392,13 @@ async def comment_question(
     question_id: UUID,
     payload: CommentRequest,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
 ) -> CommentResponse:
-    return await _create_comment(CommentTarget.QUESTION, question_id, payload, user.id, session)
+    return await _create_comment(
+        CommentTarget.QUESTION, question_id, payload, user.id, questions, answers, comments
+    )
 
 
 @answers_router.post(
@@ -444,9 +411,13 @@ async def comment_answer(
     answer_id: UUID,
     payload: CommentRequest,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
 ) -> CommentResponse:
-    return await _create_comment(CommentTarget.ANSWER, answer_id, payload, user.id, session)
+    return await _create_comment(
+        CommentTarget.ANSWER, answer_id, payload, user.id, questions, answers, comments
+    )
 
 
 @answers_router.post(
@@ -457,45 +428,37 @@ async def comment_answer(
 async def accept_answer(
     answer_id: UUID,
     user: CurrentUser,
-    background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    publisher: EventPublisherDep,
 ) -> Response:
-    use_case = AcceptAnswerUseCase(
-        SqlAlchemyQuestionRepository(session), SqlAlchemyAnswerRepository(session)
-    )
-    try:
-        result = await use_case.execute(
-            AcceptAnswerCommand(answer_id=answer_id, actor_id=user.id)
-        )
-    except AnswerNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except NotQuestionAuthorError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    except QuestionClosedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except AnswerAlreadyAcceptedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    publish_accept_event(background_tasks, _event_payload(result.event))
+    use_case = AcceptAnswerUseCase(questions, answers)
+    result = await use_case.execute(AcceptAnswerCommand(answer_id=answer_id, actor_id=user.id))
+    publisher.publish_accept(_accept_payload(result.event))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _event_payload(event: VoteCast | AnswerAccepted) -> dict[str, Any]:
-    """领域事件 → JSON 安全 dict（UUID→str、datetime→isoformat；StrEnum 即 str）。
+def _vote_payload(event: VoteCast) -> VoteEventPayload:
+    """qa 领域事件 → reputation 已发布语言 DTO（字段映射，不做序列化）。"""
+    return VoteEventPayload(
+        vote_id=event.vote_id,
+        user_id=event.user_id,
+        target_type=event.target_type.value,
+        target_id=event.target_id,
+        direction=event.direction.value,
+        target_author_id=event.target_author_id,
+        occurred_at=event.occurred_at,
+    )
 
-    kombu JSON 序列化要求叶子可 JSON 化；worker 入口经 tasks._to_uuid/
-    _to_datetime 回转（v3.1 注记 ③）。
-    """
-    data = asdict(event)
-    return {
-        key: (
-            str(value)
-            if isinstance(value, UUID)
-            else value.isoformat()
-            if isinstance(value, datetime)
-            else value
-        )
-        for key, value in data.items()
-    }
+
+def _accept_payload(event: AnswerAccepted) -> AcceptEventPayload:
+    """qa 领域事件 → reputation 已发布语言 DTO。"""
+    return AcceptEventPayload(
+        event_id=event.event_id,
+        answer_id=event.answer_id,
+        answer_author_id=event.answer_author_id,
+        occurred_at=event.occurred_at,
+    )
 
 
 @tags_router.get(
@@ -504,7 +467,7 @@ def _event_payload(event: VoteCast | AnswerAccepted) -> dict[str, Any]:
     summary="标签目录（访客可用，US-T01；码点序、同名唯一）",
 )
 async def list_tags(
-    session: AsyncSession = Depends(get_session, scope="function"),
+    tag_catalog: TagCatalogRepo,
 ) -> TagListResponse:
-    tags = await ListTagsUseCase(SqlAlchemyTagCatalogRepository(session)).execute()
+    tags = await ListTagsUseCase(tag_catalog).execute()
     return TagListResponse(tags=[t.value for t in tags])

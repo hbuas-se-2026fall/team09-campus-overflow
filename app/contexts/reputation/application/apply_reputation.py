@@ -2,8 +2,9 @@
 
 设计（3.6 细案 v3.1）：
 - 上下文边界：reputation 对 qa **0 import**——事件经 DTO（VoteEventPayload/
-  AcceptEventPayload）进入；发布端（qa interfaces）把领域事件序列化为 dict，
-  worker 反序列化后构造 DTO。分派规则表（细案 G2）是记账口径唯一实现处。
+  AcceptEventPayload，已发布语言）进入；qa 侧做领域事件 → DTO 的字段映射，
+  JSON 序列化与 worker 反序列化均在本上下文内完成。
+  分派规则表（细案 G2）是记账口径唯一实现处。
 - 自投不计分（裁定 3）：actor == 被记用户 → 跳过（返回 False，非错误）。
   选定 D-A'(i) 载荷补作者后判定无失败路径（G1 绑定注记）。
 - 幂等：append_if_absent 以 (source, event_id) 复合唯一兜底，重复投递返回 False
@@ -12,11 +13,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
-
-from app.contexts.reputation.application.ports import ReputationLedgerRepository
+from app.contexts.reputation.application.ports import (
+    AcceptEventPayload,
+    VoteEventPayload,
+)
 from app.contexts.reputation.domain.ledger import (
     ACCEPT_DELTA,
     ANSWER_DOWNVOTE_DELTA,
@@ -26,30 +26,7 @@ from app.contexts.reputation.domain.ledger import (
     LedgerEntry,
     LedgerSource,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class VoteEventPayload:
-    """投票事件 DTO（来源：qa VoteCast 序列化；字段与领域事件一一对应）。"""
-
-    vote_id: UUID
-    user_id: UUID
-    target_type: str
-    target_id: UUID
-    direction: str
-    target_author_id: UUID
-    occurred_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class AcceptEventPayload:
-    """采纳事件 DTO（来源：qa AnswerAccepted 序列化）。"""
-
-    event_id: UUID
-    answer_id: UUID
-    answer_author_id: UUID
-    occurred_at: datetime
-
+from app.contexts.reputation.domain.repository import ReputationLedgerRepository
 
 # 分派规则表（细案 G2）：(target_type, direction) → (delta, reason)
 _VOTE_DELTAS: dict[tuple[str, str], tuple[int, str]] = {

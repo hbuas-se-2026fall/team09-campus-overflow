@@ -12,10 +12,8 @@ from app.contexts.qa.domain.errors import (
     AnswerAlreadyAcceptedError,
     AnswerNotFoundError,
     NotQuestionAuthorError,
-    QuestionClosedError,
     QuestionNotFoundError,
 )
-from app.contexts.qa.domain.question import QuestionStatus
 from app.contexts.qa.domain.repository import AnswerRepository, QuestionRepository
 
 
@@ -56,8 +54,7 @@ class AcceptAnswerUseCase:
             raise QuestionNotFoundError("问题不存在")  # 理论不可达（FK 保证），防御性
         if question.author_id != command.actor_id:
             raise NotQuestionAuthorError("仅提问者可采纳答案")
-        if question.status is QuestionStatus.CLOSED:
-            raise QuestionClosedError("已关闭的问题不可采纳")
+        question.ensure_open("采纳")
         if question.accepted_answer_id is not None:
             raise AnswerAlreadyAcceptedError("该问题已有采纳答案")
 

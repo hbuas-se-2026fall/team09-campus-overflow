@@ -5,22 +5,60 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from app.contexts.identity.application.login_use_case import LoginUseCase
+from app.contexts.identity.application.ports import (
+    ACCESS_TOKEN_TTL,
+    LOGIN_FAILURE_THRESHOLD,
+    LOGIN_LOCKOUT_WINDOW,
+    REFRESH_TOKEN_TTL,
+)
+from app.contexts.identity.application.register_use_case import RegisterUseCase
+from app.contexts.identity.domain.repository import UserRepository
 from app.contexts.identity.domain.user import Role, User
+from app.contexts.identity.infrastructure.login_attempt_guard import RedisLoginAttemptGuard
+from app.contexts.identity.infrastructure.password_hasher import BcryptPasswordHasher
+from app.contexts.identity.infrastructure.refresh_store import RedisRefreshTokenStore
 from app.contexts.identity.infrastructure.repository import SqlAlchemyUserRepository
 from app.contexts.identity.infrastructure.token_service import JwtTokenService
-from app.shared.engine import get_session
+from app.platform.http.deps import SessionDep
 
 _bearer = HTTPBearer(auto_error=False)
 # 模块级单例：不每请求重建（JWT 校验无请求级状态）
-token_service = JwtTokenService(get_settings().jwt_secret)
+token_service = JwtTokenService(
+    get_settings().jwt_secret, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
+)
+refresh_store = RedisRefreshTokenStore()
+login_attempt_guard = RedisLoginAttemptGuard(LOGIN_FAILURE_THRESHOLD, LOGIN_LOCKOUT_WINDOW)
+
+
+def build_register_use_case(users: UserRepository) -> RegisterUseCase:
+    """组装注册用例：仓储 + 哈希器依赖注入。"""
+    return RegisterUseCase(users, BcryptPasswordHasher())
+
+
+def build_login_use_case(users: UserRepository) -> LoginUseCase:
+    """组装登录用例：仓储 + 哈希器 + 令牌服务 + 刷新存储 + 失败锁定守卫（US-L04）。"""
+    return LoginUseCase(
+        users,
+        BcryptPasswordHasher(),
+        token_service,
+        refresh_store,
+        login_attempt_guard,
+    )
+
+
+def get_user_repository(session: SessionDep) -> UserRepository:
+    return SqlAlchemyUserRepository(session)
+
+
+UserRepo = Annotated[UserRepository, Depends(get_user_repository)]
 
 
 async def get_current_user(
+    session: SessionDep,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    session: AsyncSession = Depends(get_session, scope="function"),
 ) -> User:
     """解析 Authorization: Bearer → 校验 Access 令牌 → 查库返回当前用户（2.3）。"""
     if credentials is None:
@@ -28,7 +66,7 @@ async def get_current_user(
     user_id = token_service.verify_access(credentials.credentials)
     if user_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "令牌无效或已过期")
-    user = await SqlAlchemyUserRepository(session).get_by_id(user_id)
+    user = await get_user_repository(session).get_by_id(user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户不存在")
     return user
