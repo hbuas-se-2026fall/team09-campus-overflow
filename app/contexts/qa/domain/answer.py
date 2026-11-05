@@ -52,6 +52,8 @@ class Answer:
     body: Body
     created_at: datetime
     is_accepted: bool = False
+    # 读时聚合字段：仅仓储重建读路径（get_by_id/list_by_question）填充；
+    # Answer.post() 恒 0——写路径与领域不变式不得依赖该值。
     votes_count: int = 0
     events: list[AnswerPosted] = field(default_factory=list, repr=False, compare=False)
 

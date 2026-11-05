@@ -130,3 +130,15 @@ C2（删除路由 5 处 try/except 并把 DomainValidationError 注册为 422）
 | 顺带 | `.gitignore` 增 `._pydebs/` |
 
 结果：ruff 0 / mypy 100 文件 0 / 定向（qa+identity interfaces、映射单测、架构、契约）110 passed / 全量 326 passed / OpenAPI `--check` 一致。
+
+## 11. 批次 ⑦（2026-11-05）：收尾注记
+
+| 项 | 内容 |
+|:---|:---|
+| 宽 Protocol | `QuestionRepository` docstring 补权衡：4 方法宽接口为有意设计，用例各取 1~2 方法、测试 fake 需全实现；课程规模不拆 Reader/Writer，端口再膨胀（如 F01 筛选）时按用例收窄 |
+| 读时字段 | `Answer.votes_count` 补字段级注记：仅 `get_by_id`/`list_by_question` 重建路径填充，`Answer.post()` 恒 0，写路径与领域不变式不得依赖 |
+| 性质 | 纯注释/文档，零行为变更 |
+
+结果：ruff 0 / mypy 100 文件 0 / 全量 326 passed（与 C2 基线一致）。
+
+首轮 SOLID 评审的全部条目至此闭环：P0-1/P0-2/P0-3 已修复，P1-1/P1-2/P1-3/P1-4 已修复，P2-4/P2-5 转为有意权衡注记；P2-1 架构护栏、P2-2 shared 拆分、P2-3 空上下文清理均已落地。

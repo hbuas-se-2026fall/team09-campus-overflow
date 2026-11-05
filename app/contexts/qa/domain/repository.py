@@ -19,7 +19,13 @@ class QuestionSort(StrEnum):
 
 
 class QuestionRepository(Protocol):
-    """问题聚合持久化端口：domain 定义接口，infrastructure 实现。"""
+    """问题聚合持久化端口：domain 定义接口，infrastructure 实现。
+
+    权衡注记（有意保留宽接口）：本 Protocol 4 个方法，读/写用例各只用其中 1~2 个，
+    测试 fake 因此需实现全部方法。课程规模下不拆 ``QuestionReader`` /
+    ``QuestionWriter``——拆分只增加类型、装配与 import 成本，收益低于维护成本；
+    若后续端口方法继续膨胀（如 F01 筛选再叠加数个查询），再按用例收窄。
+    """
 
     async def add(self, question: Question) -> None:
         """新增问题（聚合整体落库）。"""
