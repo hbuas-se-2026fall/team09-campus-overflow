@@ -15,6 +15,7 @@ from app.contexts.qa.interfaces.api.routes import router as qa_router
 from app.contexts.qa.interfaces.api.routes import tags_router as qa_tags_router
 from app.contexts.reputation.interfaces.api.routes import reputation_router
 from app.platform.http.body_limit import BodyLimitMiddleware
+from app.platform.http.error_mapping import register_validation_error_handler
 from app.platform.http.exception_handlers import (
     db_unavailable_handler,
     dbapi_error_handler,
@@ -29,6 +30,8 @@ def create_app() -> FastAPI:
     application.add_middleware(BodyLimitMiddleware)
     # 422 不回显 input（治 surrogate/递归炸弹 500）；数据库错误统一 400 兜底
     application.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    # 输入校验错误（值对象/目录/令牌载荷）统一 422：字符串形 detail，与旧路由兜底一致
+    register_validation_error_handler(application)
     application.add_exception_handler(SQLAlchemyError, sqlalchemy_error_handler)
     # 容量工程（F-2 修复）：连接类错误 → 503——DBAPIError 分流 + asyncpg 裸异常 + 池排队超时
     application.add_exception_handler(DBAPIError, dbapi_error_handler)

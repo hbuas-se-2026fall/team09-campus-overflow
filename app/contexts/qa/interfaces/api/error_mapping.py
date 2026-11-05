@@ -10,12 +10,10 @@ ExceptionMiddleware 直落 ServerErrorMiddleware，最终变成 500。
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, status
 
 from app.contexts.qa.domain import errors as qa_errors
+from app.platform.http.error_mapping import make_domain_error_handler
 
 # 领域错误 → HTTP 状态码，唯一出处（与既有路由语义逐条对齐）
 QA_ERROR_STATUS: dict[type[Exception], int] = {
@@ -29,15 +27,7 @@ QA_ERROR_STATUS: dict[type[Exception], int] = {
 }
 
 
-def _make_handler(status_code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
-    async def handler(_request: Request, exc: Exception) -> JSONResponse:
-        # detail 形制与 FastAPI HTTPException 一致，客户端契约不变
-        return JSONResponse(status_code=status_code, content={"detail": str(exc)})
-
-    return handler
-
-
 def register_qa_error_handlers(application: FastAPI) -> None:
     """按类注册；Starlette 按 MRO 查找，具体类优先于基类。"""
     for exc_type, status_code in QA_ERROR_STATUS.items():
-        application.add_exception_handler(exc_type, _make_handler(status_code))
+        application.add_exception_handler(exc_type, make_domain_error_handler(status_code))

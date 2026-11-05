@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Response, status
 
 from app.contexts.identity.application.commands import (
     LoginCommand,
@@ -47,13 +47,7 @@ async def register(
         student_id=payload.student_id,
         staff_id=payload.staff_id,
     )
-    try:
-        user = await use_case.execute(command)
-    except ValueError as exc:  # 值对象格式校验（学号/工号/邮箱）
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
+    user = await use_case.execute(command)
     return _user_response(user)
 
 

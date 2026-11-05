@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import HTTPException, Response, status
+from fastapi import Response, status
 
 from app.contexts.qa.application.commands import CreateCommentCommand, VoteOnCommand
 from app.contexts.qa.application.comment_use_case import CreateCommentUseCase
@@ -81,19 +81,14 @@ async def create_comment_on_target(
 ) -> CommentResponse:
     """题评/答评端点共用：成功 201 + 白名单；目标不存在 404；正文兜底 422。"""
     use_case = CreateCommentUseCase(questions, answers, comments)
-    try:
-        comment = await use_case.execute(
-            CreateCommentCommand(
-                target_type=target_type,
-                target_id=target_id,
-                body=payload.body,
-                author_id=user_id,  # 作者只取令牌，绝不取自请求体
-            )
+    comment = await use_case.execute(
+        CreateCommentCommand(
+            target_type=target_type,
+            target_id=target_id,
+            body=payload.body,
+            author_id=user_id,  # 作者只取令牌，绝不取自请求体
         )
-    except ValueError as exc:  # Body 值对象兜底校验
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
+    )
     return comment_response(comment)
 
 

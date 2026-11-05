@@ -105,7 +105,7 @@
 - 新增 AST 断言 `test_no_bare_value_error_raised`（文本 grep 会误伤 `raise DomainValidationError`，故按 AST 判定）。
 - 结果：ruff 0 / mypy 97 文件 0 / 无外部服务测试 171 passed / 全量 314 passed。
 
-C2（删除路由 5 处 try/except 并把 DomainValidationError 注册为 422）未执行，保持两步走。
+C2（删除路由 5 处 try/except 并把 DomainValidationError 注册为 422）见第 10 节，已执行。
 
 ## 9. 批次 B（2026-11-05）：refresh/logout 用例化
 
@@ -117,3 +117,16 @@ C2（删除路由 5 处 try/except 并把 DomainValidationError 注册为 422）
 | 测试 | 新增 `tests/contexts/identity/application/test_refresh_logout_use_cases.py` 10 条：轮换成功 / 旧 jti 复放 401 / 新 refresh 可继续轮换 / DB 读失败不消耗令牌 / 用户不存在 / jti 未知 / 归属不一致 / 解码失败 / logout 吊销 / logout 幂等 |
 
 结果：ruff 0 / mypy 99 文件 0 / 身份用例+API+契约+架构 53 passed / 全量 324 passed / OpenAPI `--check` 一致。
+
+## 10. 批次 C2（2026-11-05）：422 映射单源 + 路由零 try/except
+
+| 项 | 内容 |
+|:---|:---|
+| 新增 | `app/platform/http/error_mapping.py`：`make_domain_error_handler(status_code)`（替换 identity/qa 两份 `_make_handler`）+ `register_validation_error_handler(app)` |
+| 注册 | `main.py` 调一次；只注册 `DomainValidationError`，**不注册裸 ValueError**（内部 bug 仍应 500） |
+| 删除 | 5 处路由 try/except：questions.py 3（ask/edit/post_answer）、_common.py 1（comment）、identity/routes.py 1（register） |
+| 未动 | `questions.py` 的 `HTTPException` 保留（详情 404 在用）；infrastructure 内 3 处 `except ValueError`（JWT 解码容错 2、Redis 键污染自愈 1）与 422 兜底无关，保持原样 |
+| 测试 | 新增 `tests/test_domain_error_mapping.py` 2 条：独立 mini FastAPI 验证 `DomainValidationError→422 {"detail": str}` 与裸 `ValueError→500`（避免 create_app 的完整处理器链掩盖命题） |
+| 顺带 | `.gitignore` 增 `._pydebs/` |
+
+结果：ruff 0 / mypy 100 文件 0 / 定向（qa+identity interfaces、映射单测、架构、契约）110 passed / 全量 326 passed / OpenAPI `--check` 一致。

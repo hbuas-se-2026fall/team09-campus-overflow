@@ -7,10 +7,7 @@ ExceptionMiddleware 变成 500。
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, status
 
 from app.contexts.identity.domain.errors import (
     AccountLockedError,
@@ -20,6 +17,7 @@ from app.contexts.identity.domain.errors import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
 )
+from app.platform.http.error_mapping import make_domain_error_handler
 
 IDENTITY_ERROR_STATUS: dict[type[Exception], int] = {
     EmailAlreadyExistsError: status.HTTP_409_CONFLICT,
@@ -32,13 +30,6 @@ IDENTITY_ERROR_STATUS: dict[type[Exception], int] = {
 }
 
 
-def _make_handler(status_code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
-    async def handler(_request: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(status_code=status_code, content={"detail": str(exc)})
-
-    return handler
-
-
 def register_identity_error_handlers(application: FastAPI) -> None:
     for exc_type, status_code in IDENTITY_ERROR_STATUS.items():
-        application.add_exception_handler(exc_type, _make_handler(status_code))
+        application.add_exception_handler(exc_type, make_domain_error_handler(status_code))

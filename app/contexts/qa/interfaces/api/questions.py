@@ -67,20 +67,14 @@ async def ask_question(
     tags: TagCatalogRepo,
 ) -> QuestionResponse:
     use_case = AskQuestionUseCase(questions, tags)
-    try:
-        question = await use_case.execute(
-            AskQuestionCommand(
-                title=payload.title,
-                body=payload.body,
-                author_id=user.id,  # 作者只取令牌中的当前用户，绝不取自请求体
-                tags=tuple(payload.tags),
-            )
+    question = await use_case.execute(
+        AskQuestionCommand(
+            title=payload.title,
+            body=payload.body,
+            author_id=user.id,  # 作者只取令牌中的当前用户，绝不取自请求体
+            tags=tuple(payload.tags),
         )
-    except ValueError as exc:  # Title/Body/Tag 值对象与目录上限兜底校验（字符串形 422）
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
+    )
     return _question_response(question)
 
 
@@ -177,19 +171,14 @@ async def edit_question(
     questions: QuestionRepo,
 ) -> QuestionResponse:
     use_case = EditQuestionUseCase(questions)
-    try:
-        question = await use_case.execute(
-            EditQuestionCommand(
-                question_id=question_id,
-                actor_id=user.id,
-                title=payload.title,
-                body=payload.body,
-            )
+    question = await use_case.execute(
+        EditQuestionCommand(
+            question_id=question_id,
+            actor_id=user.id,
+            title=payload.title,
+            body=payload.body,
         )
-    except ValueError as exc:  # Title/Body 值对象兜底校验（字符串形 422）
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
+    )
     return _question_response(question)
 
 
@@ -235,18 +224,13 @@ async def post_answer(
     answers: AnswerRepo,
 ) -> AnswerResponse:
     use_case = PostAnswerUseCase(questions, answers)
-    try:
-        answer = await use_case.execute(
-            PostAnswerCommand(
-                question_id=question_id,
-                body=payload.body,
-                author_id=user.id,  # 作者只取令牌，绝不取自请求体
-            )
+    answer = await use_case.execute(
+        PostAnswerCommand(
+            question_id=question_id,
+            body=payload.body,
+            author_id=user.id,  # 作者只取令牌，绝不取自请求体
         )
-    except ValueError as exc:  # Body 值对象兜底校验
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
+    )
 
     return AnswerResponse(
         id=answer.id,

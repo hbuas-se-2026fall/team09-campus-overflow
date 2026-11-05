@@ -8,6 +8,7 @@ __pycache__/
 htmlcov/
 .coverage
 .workbuddy-ai/
+._pydebs/
 
 # SSH keys / local secrets - never commit
 id_rsa*
