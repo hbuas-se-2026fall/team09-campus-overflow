@@ -10,10 +10,8 @@
 
 from __future__ import annotations
 
-from app.contexts.identity.application.ports import (
-    LOGIN_FAILURE_THRESHOLD,
-    LOGIN_LOCKOUT_WINDOW,
-)
+from datetime import timedelta
+
 from app.shared.redis import get_redis
 
 
@@ -21,6 +19,10 @@ class RedisLoginAttemptGuard:
     """LoginAttemptGuard 端口的 Redis 实现（2026-09-29 裁定：全 identifier 统一计数）。"""
 
     _PREFIX = "login:fail:"
+
+    def __init__(self, threshold: int, window: timedelta) -> None:
+        self._threshold = threshold
+        self._window = window
 
     def _key(self, identifier: str) -> str:
         return f"{self._PREFIX}{identifier}"
@@ -30,7 +32,7 @@ class RedisLoginAttemptGuard:
         if raw is None:
             return False
         try:
-            return int(raw) >= LOGIN_FAILURE_THRESHOLD
+            return int(raw) >= self._threshold
         except ValueError:  # 键被污染（理论不可达）：不拦截登录，留待 TTL 过期自愈
             return False
 
@@ -40,7 +42,7 @@ class RedisLoginAttemptGuard:
         key = self._key(identifier)
         pipe = get_redis().pipeline()
         pipe.incr(key)
-        pipe.expire(key, int(LOGIN_LOCKOUT_WINDOW.total_seconds()))
+        pipe.expire(key, int(self._window.total_seconds()))
         await pipe.execute()
 
     async def clear(self, identifier: str) -> None:

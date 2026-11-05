@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.shared.errors import DomainValidationError
 from app.shared.text_validation import reject_unsafe_text
 
 
@@ -32,9 +33,9 @@ class RegisterRequest(BaseModel):
     @model_validator(mode="after")
     def _identity_matches_role(self) -> RegisterRequest:
         if self.role == "student" and not self.student_id:
-            raise ValueError("学生注册必须提供 student_id")
+            raise DomainValidationError("学生注册必须提供 student_id")
         if self.role == "teacher" and not self.staff_id:
-            raise ValueError("教师注册必须提供 staff_id")
+            raise DomainValidationError("教师注册必须提供 staff_id")
         return self
 
 

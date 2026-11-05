@@ -5,27 +5,31 @@ from uuid import UUID, uuid4
 
 from jose import JWTError, jwt
 
-from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
 from app.contexts.identity.domain.user import User
 
 
 class JwtTokenService:
     """TokenService 端口的 python-jose 实现（HS256）。
 
-    - Access 令牌：typ=access，TTL 15min
-    - Refresh 令牌：typ=refresh + jti，TTL 7d（jti 用于 Redis 存储与原子消耗）
+    - Access 令牌：typ=access，TTL 由组合根注入（生产默认 15min）
+    - Refresh 令牌：typ=refresh + jti，TTL 由组合根注入（生产默认 7d）
     - decode 钉死 algorithms=["HS256"]，拒绝 alg:none 等降级攻击
     """
 
-    def __init__(self, secret: str) -> None:
+    def __init__(self, secret: str, access_ttl: timedelta, refresh_ttl: timedelta) -> None:
         self._secret = secret
+        self._access_ttl = access_ttl
+        self._refresh_ttl = refresh_ttl
 
     def issue_access(self, user: User) -> str:
-        return self._encode(user_id=user.id, typ="access", ttl=ACCESS_TOKEN_TTL)
+        return self._encode(user_id=user.id, typ="access", ttl=self._access_ttl)
 
     def issue_refresh(self, user: User) -> tuple[str, UUID]:
         jti = uuid4()
-        return self._encode(user_id=user.id, typ="refresh", ttl=REFRESH_TOKEN_TTL, jti=jti), jti
+        return (
+            self._encode(user_id=user.id, typ="refresh", ttl=self._refresh_ttl, jti=jti),
+            jti,
+        )
 
     def verify_access(self, token: str) -> UUID | None:
         payload = self._decode(token)

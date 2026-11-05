@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from app.contexts.qa.application.commands import PostAnswerCommand
 from app.contexts.qa.domain.answer import Answer
-from app.contexts.qa.domain.errors import QuestionClosedError, QuestionNotFoundError
-from app.contexts.qa.domain.question import QuestionStatus
+from app.contexts.qa.domain.errors import QuestionNotFoundError
 from app.contexts.qa.domain.repository import AnswerRepository, QuestionRepository
 
 
@@ -24,8 +23,7 @@ class PostAnswerUseCase:
         question = await self._question_repository.get_by_id(command.question_id)
         if question is None:
             raise QuestionNotFoundError("问题不存在")
-        if question.status is QuestionStatus.CLOSED:
-            raise QuestionClosedError("已关闭的问题不可新增回答")
+        question.ensure_open("新增回答")
         answer = Answer.post(
             question_id=command.question_id,
             author_id=command.author_id,

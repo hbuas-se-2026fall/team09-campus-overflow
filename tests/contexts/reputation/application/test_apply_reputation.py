@@ -11,11 +11,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.contexts.reputation.application.apply_reputation import (
-    AcceptEventPayload,
-    VoteEventPayload,
     apply_accept_event,
     apply_vote_event,
     vote_delta,
+)
+from app.contexts.reputation.application.ports import (
+    AcceptEventPayload,
+    VoteEventPayload,
 )
 from app.contexts.reputation.domain.ledger import (
     ACCEPT_DELTA,

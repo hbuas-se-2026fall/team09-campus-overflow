@@ -6,10 +6,8 @@ from app.contexts.qa.application.commands import CreateCommentCommand
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.errors import (
     AnswerNotFoundError,
-    QuestionClosedError,
     QuestionNotFoundError,
 )
-from app.contexts.qa.domain.question import QuestionStatus
 from app.contexts.qa.domain.repository import (
     AnswerRepository,
     CommentRepository,
@@ -40,15 +38,14 @@ class CreateCommentUseCase:
             question = await self._question_repository.get_by_id(command.target_id)
             if question is None:
                 raise QuestionNotFoundError("问题不存在")
-            if question.status is QuestionStatus.CLOSED:
-                raise QuestionClosedError("已关闭的问题不可评论")
+            question.ensure_open("评论")
         else:
             answer = await self._answer_repository.get_by_id(command.target_id)
             if answer is None:
                 raise AnswerNotFoundError("回答不存在")
             parent = await self._question_repository.get_by_id(answer.question_id)
-            if parent is not None and parent.status is QuestionStatus.CLOSED:
-                raise QuestionClosedError("已关闭的问题不可对回答评论")
+            if parent is not None:
+                parent.ensure_open("对回答评论")
         comment = Comment.write(
             target_type=command.target_type,
             target_id=command.target_id,

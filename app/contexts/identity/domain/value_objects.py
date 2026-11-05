@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.shared.errors import DomainValidationError
 from app.shared.text_validation import reject_unsafe_text
 
 _STUDENT_ID_PATTERN = re.compile(r"^\d{8,12}$")
@@ -19,7 +20,7 @@ class StudentId:
     def __post_init__(self) -> None:
         reject_unsafe_text(self.value, field_name="学号")
         if not _STUDENT_ID_PATTERN.match(self.value):
-            raise ValueError(f"学号格式不合法：{self.value!r}（应为 8~12 位数字）")
+            raise DomainValidationError(f"学号格式不合法：{self.value!r}（应为 8~12 位数字）")
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +32,7 @@ class StaffId:
     def __post_init__(self) -> None:
         reject_unsafe_text(self.value, field_name="工号")
         if not _STAFF_ID_PATTERN.match(self.value):
-            raise ValueError(f"工号格式不合法：{self.value!r}（应为 T+4~8 位数字）")
+            raise DomainValidationError(f"工号格式不合法：{self.value!r}（应为 T+4~8 位数字）")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,7 @@ class Email:
     def __post_init__(self) -> None:
         reject_unsafe_text(self.value, field_name="邮箱")
         if not _EMAIL_PATTERN.match(self.value):
-            raise ValueError(f"邮箱格式不合法：{self.value!r}")
+            raise DomainValidationError(f"邮箱格式不合法：{self.value!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,4 +55,4 @@ class PasswordHash:
 
     def __post_init__(self) -> None:
         if not self.value.startswith("$2"):
-            raise ValueError("密码必须以 bcrypt 哈希存储，禁止明文")
+            raise DomainValidationError("密码必须以 bcrypt 哈希存储，禁止明文")

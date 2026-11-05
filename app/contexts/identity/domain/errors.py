@@ -28,3 +28,7 @@ class InvalidCredentialsError(IdentityDomainError):
 
 class AccountLockedError(IdentityDomainError):
     """登录失败超限，账号临时锁定（US-L04，路由层转 423 Locked）。"""
+
+
+class InvalidRefreshTokenError(IdentityDomainError):
+    """Refresh 令牌无效/已失效（路由层转 401，消息按调用点具体化）。"""

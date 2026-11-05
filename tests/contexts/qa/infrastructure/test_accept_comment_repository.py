@@ -21,11 +21,9 @@ from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question
 from app.contexts.qa.domain.value_objects import Body, Title
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyAnswerRepository,
-    SqlAlchemyCommentRepository,
-    SqlAlchemyQuestionRepository,
-)
+from app.contexts.qa.infrastructure.answer_repository import SqlAlchemyAnswerRepository
+from app.contexts.qa.infrastructure.comment_repository import SqlAlchemyCommentRepository
+from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
 from app.shared.engine import session_factory
 
 pytestmark = pytest.mark.integration

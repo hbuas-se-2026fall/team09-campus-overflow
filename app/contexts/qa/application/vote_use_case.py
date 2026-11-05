@@ -9,10 +9,8 @@ from app.contexts.qa.application.commands import VoteOnCommand
 from app.contexts.qa.domain.errors import (
     AlreadyVotedError,
     AnswerNotFoundError,
-    QuestionClosedError,
     QuestionNotFoundError,
 )
-from app.contexts.qa.domain.question import QuestionStatus
 from app.contexts.qa.domain.repository import (
     AnswerRepository,
     QuestionRepository,
@@ -63,15 +61,14 @@ class VoteOnUseCase:
             question = await self._question_repository.get_by_id(target_id)
             if question is None:
                 raise QuestionNotFoundError("问题不存在")
-            if question.status is QuestionStatus.CLOSED:
-                raise QuestionClosedError("已关闭的问题不可投票")
+            question.ensure_open("投票")
             return question.author_id
         answer = await self._answer_repository.get_by_id(target_id)
         if answer is None:
             raise AnswerNotFoundError("回答不存在")
         parent = await self._question_repository.get_by_id(answer.question_id)
-        if parent is not None and parent.status is QuestionStatus.CLOSED:
-            raise QuestionClosedError("已关闭的问题不可对回答投票")
+        if parent is not None:
+            parent.ensure_open("对回答投票")
         return answer.author_id
 
     async def execute(self, command: VoteOnCommand) -> VoteOutcome:

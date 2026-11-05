@@ -4,6 +4,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from app.shared.errors import DomainValidationError
+
 _TAG_MIN_LENGTH = 1
 _TAG_MAX_LENGTH = 50
 _MAX_TAGS_PER_QUESTION = 5
@@ -48,14 +50,14 @@ class Tag:
     def __post_init__(self) -> None:
         normalized = self.value.strip()
         if not (_TAG_MIN_LENGTH <= len(normalized) <= _TAG_MAX_LENGTH):
-            raise ValueError(
+            raise DomainValidationError(
                 f"标签需 {_TAG_MIN_LENGTH}~{_TAG_MAX_LENGTH} 字（去首尾空白后），"
                 f"实际 {len(normalized)} 字"
             )
         for ch in normalized:
             if not _is_allowed_char(ch):
                 code = ord(ch)
-                raise ValueError(
+                raise DomainValidationError(
                     f"标签含不支持的字符（U+{code:04X}）："
                     "仅允许中英文、数字、连字符、下划线与空格"
                 )
@@ -98,7 +100,7 @@ class TagCatalog:
                 seen.add(tag.key)
                 resolved.append(tag)
         if len(resolved) > _MAX_TAGS_PER_QUESTION:
-            raise ValueError(
+            raise DomainValidationError(
                 f"至多 {_MAX_TAGS_PER_QUESTION} 个标签（同名标签自动归并后计数），"
                 f"实际 {len(resolved)} 个"
             )

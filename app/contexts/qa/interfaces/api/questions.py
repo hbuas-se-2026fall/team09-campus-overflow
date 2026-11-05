@@ -1,0 +1,315 @@
+"""问题路由：提问/列表/详情/编辑/关闭/回答/问题票/题评。"""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
+
+from app.contexts.identity.interfaces.api.deps import CurrentUser
+from app.contexts.qa.application.answer_use_case import PostAnswerUseCase
+from app.contexts.qa.application.ask_question_use_case import AskQuestionUseCase
+from app.contexts.qa.application.close_question_use_case import CloseQuestionUseCase
+from app.contexts.qa.application.commands import (
+    AskQuestionCommand,
+    CloseQuestionCommand,
+    EditQuestionCommand,
+    PostAnswerCommand,
+)
+from app.contexts.qa.application.edit_question_use_case import EditQuestionUseCase
+from app.contexts.qa.application.get_question_use_case import GetQuestionUseCase
+from app.contexts.qa.application.list_questions_use_case import ListQuestionsUseCase
+from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQuery
+from app.contexts.qa.domain.comment import CommentTarget
+from app.contexts.qa.domain.question import Question
+from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.vote import VoteTarget
+from app.contexts.qa.interfaces.api._common import (
+    comment_response,
+    create_comment_on_target,
+    vote_on_target,
+)
+from app.contexts.qa.interfaces.api.deps import (
+    AnswerRepo,
+    CommentRepo,
+    QuestionRepo,
+    TagCatalogRepo,
+    VoteRepo,
+)
+from app.contexts.qa.interfaces.api.schemas import (
+    AnswerResponse,
+    AskQuestionRequest,
+    CommentRequest,
+    CommentResponse,
+    EditQuestionRequest,
+    PostAnswerRequest,
+    QuestionDetailResponse,
+    QuestionListItem,
+    QuestionListResponse,
+    QuestionResponse,
+    VoteRequest,
+)
+from app.contexts.reputation.interfaces.publisher import EventPublisherDep
+
+router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
+
+
+@router.post(
+    "",
+    response_model=QuestionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="发布问题（登录用户）",
+)
+async def ask_question(
+    payload: AskQuestionRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    tags: TagCatalogRepo,
+) -> QuestionResponse:
+    use_case = AskQuestionUseCase(questions, tags)
+    question = await use_case.execute(
+        AskQuestionCommand(
+            title=payload.title,
+            body=payload.body,
+            author_id=user.id,  # 作者只取令牌中的当前用户，绝不取自请求体
+            tags=tuple(payload.tags),
+        )
+    )
+    return _question_response(question)
+
+
+@router.get(
+    "",
+    response_model=QuestionListResponse,
+    summary="问题列表（访客可用，默认按发布时间新→旧，可按净票数排序）",
+)
+async def list_questions(
+    questions: QuestionRepo,
+    page: int = Query(default=1, ge=1, description="页码，从 1 起"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页条数，上限 100（S-05）"),
+    sort: QuestionSort = Query(
+        default=QuestionSort.LATEST,
+        description="排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）",
+    ),
+) -> QuestionListResponse:
+    # sort 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07 迭代 2 收紧）
+    use_case = ListQuestionsUseCase(questions)
+    result = await use_case.execute(
+        ListQuestionsQuery(page=page, page_size=page_size, sort=sort)
+    )
+    return QuestionListResponse(
+        items=[
+            QuestionListItem(
+                id=q.id,
+                title=q.title.value,
+                author_id=q.author_id,
+                created_at=q.created_at,
+                tags=[t.value for t in q.tags],
+                status=q.status,
+            )
+            for q in result.items
+        ],
+        total=result.total,
+        page=result.page,
+        page_size=result.page_size,
+        total_pages=result.total_pages,
+    )
+
+
+@router.get(
+    "/{question_id}",
+    response_model=QuestionDetailResponse,
+    summary="问题详情（访客可用，answers 按 D2 排序）",
+)
+async def get_question(
+    question_id: UUID,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
+) -> QuestionDetailResponse:
+    use_case = GetQuestionUseCase(questions, answers, comments)
+    view = await use_case.execute(GetQuestionQuery(question_id=question_id))
+    if view is None:
+        # S-10：只回业务语义，不泄露内部信息
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
+    return QuestionDetailResponse(
+        id=view.question.id,
+        title=view.question.title.value,
+        body=view.question.body.value,
+        author_id=view.question.author_id,
+        created_at=view.question.created_at,
+        accepted_answer_id=view.question.accepted_answer_id,
+        tags=[t.value for t in view.question.tags],
+        status=view.question.status,
+        answers=[
+            AnswerResponse(
+                id=a.id,
+                body=a.body.value,
+                author_id=a.author_id,
+                created_at=a.created_at,
+                votes=a.votes_count,
+                is_accepted=a.is_accepted,
+                comments=[
+                    comment_response(c) for c in view.answer_comments.get(str(a.id), [])
+                ],
+            )
+            for a in view.answers
+        ],
+        comments=[comment_response(c) for c in view.question_comments],
+    )
+
+
+@router.patch(
+    "/{question_id}",
+    response_model=QuestionResponse,
+    summary="编辑问题（仅提问者，US-Q08；仅标题+正文；已关闭 409）",
+)
+async def edit_question(
+    question_id: UUID,
+    payload: EditQuestionRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+) -> QuestionResponse:
+    use_case = EditQuestionUseCase(questions)
+    question = await use_case.execute(
+        EditQuestionCommand(
+            question_id=question_id,
+            actor_id=user.id,
+            title=payload.title,
+            body=payload.body,
+        )
+    )
+    return _question_response(question)
+
+
+def _question_response(question: Question) -> QuestionResponse:
+    """问题白名单响应唯一装配处（创建/编辑复用，tags 统一码点序）。"""
+    return QuestionResponse(
+        id=question.id,
+        title=question.title.value,
+        body=question.body.value,
+        author_id=question.author_id,
+        created_at=question.created_at,
+        tags=sorted(t.value for t in question.tags),
+        status=question.status,
+    )
+
+
+@router.post(
+    "/{question_id}/close",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="关闭问题（仅提问者，US-Q08；重复关闭/已采纳 409）",
+)
+async def close_question(
+    question_id: UUID,
+    user: CurrentUser,
+    questions: QuestionRepo,
+) -> Response:
+    use_case = CloseQuestionUseCase(questions)
+    await use_case.execute(CloseQuestionCommand(question_id=question_id, actor_id=user.id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{question_id}/answers",
+    response_model=AnswerResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="发布回答（登录用户，US-A01）",
+)
+async def post_answer(
+    question_id: UUID,
+    payload: PostAnswerRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+) -> AnswerResponse:
+    use_case = PostAnswerUseCase(questions, answers)
+    answer = await use_case.execute(
+        PostAnswerCommand(
+            question_id=question_id,
+            body=payload.body,
+            author_id=user.id,  # 作者只取令牌，绝不取自请求体
+        )
+    )
+
+    return AnswerResponse(
+        id=answer.id,
+        body=answer.body.value,
+        author_id=answer.author_id,
+        created_at=answer.created_at,
+        votes=0,  # 新回答无票
+        is_accepted=answer.is_accepted,
+    )
+
+
+@router.post(
+    "/{question_id}/vote",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="对问题投票（登录用户，US-V01；重复票/改票 409）",
+)
+async def vote_question(
+    question_id: UUID,
+    payload: VoteRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    votes: VoteRepo,
+    publisher: EventPublisherDep,
+) -> Response:
+    return await vote_on_target(
+        VoteTarget.QUESTION,
+        question_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        votes,
+        publisher,
+    )
+
+
+@router.post(
+    "/{question_id}/answers/{answer_id}/vote",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="对回答投票（登录用户，US-V01；重复票/改票 409）",
+)
+async def vote_answer(
+    question_id: UUID,
+    answer_id: UUID,
+    payload: VoteRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    votes: VoteRepo,
+    publisher: EventPublisherDep,
+) -> Response:
+    # 路径嵌套仅为可读性；回答存在性由 answer_id 定位（question_id 不参与查询）
+    return await vote_on_target(
+        VoteTarget.ANSWER,
+        answer_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        votes,
+        publisher,
+    )
+
+
+@router.post(
+    "/{question_id}/comments",
+    response_model=CommentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="对问题发表评论（登录用户，US-C01）",
+)
+async def comment_question(
+    question_id: UUID,
+    payload: CommentRequest,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
+) -> CommentResponse:
+    return await create_comment_on_target(
+        CommentTarget.QUESTION, question_id, payload, user.id, questions, answers, comments
+    )

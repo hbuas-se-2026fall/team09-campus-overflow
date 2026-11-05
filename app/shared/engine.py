@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import (
@@ -11,14 +12,26 @@ from sqlalchemy.ext.asyncio import (
 from app.config.settings import get_settings
 
 
-def _build_engine() -> AsyncEngine:
+def _connect_args() -> dict[str, Any]:
     settings = get_settings()
     # 服务端语句/锁等待超时（第八路观察点 2）：防外部行锁令请求无上限挂起
-    server_settings = {
-        "statement_timeout": str(settings.db_statement_timeout_ms),
-        "lock_timeout": str(settings.db_lock_timeout_ms),
+    return {
+        "timeout": settings.db_connect_timeout,
+        "server_settings": {
+            "statement_timeout": str(settings.db_statement_timeout_ms),
+            "lock_timeout": str(settings.db_lock_timeout_ms),
+        },
     }
-    if settings.db_pool_size > 0:
+
+
+def build_engine(*, force_null_pool: bool = False) -> AsyncEngine:
+    """构建 AsyncEngine；连接参数单源（HTTP 与 Celery worker 共用）。
+
+    force_null_pool=True 供 worker 使用：任务内 asyncio.run() 每次新建事件循环，
+    池化连接会在跨 loop 复用时失效，必须强制 NullPool。
+    """
+    settings = get_settings()
+    if not force_null_pool and settings.db_pool_size > 0:
         # 池化模式（仅哨兵 >0 时启用；0 绝不能传入池——SQLAlchemy 的 pool_size=0 是无上限池）。
         # pre_ping/recycle 防 WSL2/Docker NAT 静默丢弃空闲连接；上限 = pool_size+max_overflow。
         return create_async_engine(
@@ -29,24 +42,18 @@ def _build_engine() -> AsyncEngine:
             pool_timeout=settings.db_pool_timeout,
             pool_pre_ping=True,
             pool_recycle=1800,
-            connect_args={
-                "timeout": settings.db_connect_timeout,
-                "server_settings": server_settings,
-            },
+            connect_args=_connect_args(),
         )
     # NullPool：不复用连接。代价是每次请求新建连接（本机 ~1ms），
     # 换取对 pytest 多事件循环 / uvicorn --reload 的免疫（默认路径，测试/CI 零影响）。
     return create_async_engine(
         settings.database_url,
         poolclass=pool.NullPool,
-        connect_args={
-            "timeout": settings.db_connect_timeout,
-            "server_settings": server_settings,
-        },
+        connect_args=_connect_args(),
     )
 
 
-engine = _build_engine()
+engine = build_engine()
 session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 

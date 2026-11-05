@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.contexts.reputation.application.ports import ReputationLedgerRepository
 from app.contexts.reputation.domain.ledger import LedgerEntry
+from app.contexts.reputation.domain.repository import ReputationLedgerRepository
 
 
 @dataclass(frozen=True, slots=True)

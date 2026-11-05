@@ -4,19 +4,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, status
 
 from app.contexts.identity.interfaces.api.deps import CurrentUser
 from app.contexts.reputation.application.get_reputation_use_case import GetReputationUseCase
-from app.contexts.reputation.infrastructure.repository import (
-    SqlAlchemyReputationLedgerRepository,
-)
+from app.contexts.reputation.interfaces.api.deps import ReputationLedgerRepo
 from app.contexts.reputation.interfaces.api.schemas import (
     ReputationEntryResponse,
     ReputationResponse,
 )
-from app.shared.engine import get_session
 
 reputation_router = APIRouter(prefix="/api/v1/users", tags=["reputation"])
 
@@ -29,7 +25,7 @@ reputation_router = APIRouter(prefix="/api/v1/users", tags=["reputation"])
 async def get_reputation(
     user_id: UUID,
     user: CurrentUser,
-    session: AsyncSession = Depends(get_session, scope="function"),
+    ledger: ReputationLedgerRepo,
 ) -> ReputationResponse:
     """仅本人可见（v3.1 裁定 4；Gherkin 功能域 11 场景 3 字面"查询自己的声誉"）。
 
@@ -40,7 +36,7 @@ async def get_reputation(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="仅可查询本人声誉"
         )
-    use_case = GetReputationUseCase(SqlAlchemyReputationLedgerRepository(session))
+    use_case = GetReputationUseCase(ledger)
     view = await use_case.execute(user_id)
     return ReputationResponse(
         user_id=view.user_id,

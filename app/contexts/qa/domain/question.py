@@ -85,14 +85,23 @@ class Question:
             )
         )
 
+    def ensure_open(self, action: str) -> None:
+        """已关闭问题上的受禁操作统一入口（US-Q08 全冻结）。
+
+        关闭为终态：编辑/新增回答/投票/评论/采纳一律 QuestionClosedError（409）。
+        消息按调用点语义具体化（action 为动作名）；重复关闭语义不同，
+        由 close() 自行判定（QuestionAlreadyClosedError）。
+        """
+        if self.status is QuestionStatus.CLOSED:
+            raise QuestionClosedError(f"已关闭的问题不可{action}")
+
     def edit_title_body(self, *, title_value: str, body_value: str) -> None:
         """编辑标题+正文（US-Q08；裁定 D6 仅标题+正文，标签不可编辑）。
 
         已关闭问题不可编辑（QuestionClosedError→409，全冻结裁定）；
         值对象先构后赋——任一校验失败（ValueError→422）不产生半改状态。
         """
-        if self.status is QuestionStatus.CLOSED:
-            raise QuestionClosedError("已关闭的问题不可编辑")
+        self.ensure_open("编辑")
         title = Title(title_value)
         body = Body(body_value)
         self.title = title

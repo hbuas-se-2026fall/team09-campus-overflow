@@ -18,10 +18,8 @@ from app.contexts.qa.application.ask_question_use_case import AskQuestionUseCase
 from app.contexts.qa.application.commands import AskQuestionCommand
 from app.contexts.qa.domain.question import Question
 from app.contexts.qa.domain.value_objects import Body, Title
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyQuestionRepository,
-    SqlAlchemyTagCatalogRepository,
-)
+from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
+from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
 from app.shared.engine import session_factory
 
 pytestmark = pytest.mark.integration
