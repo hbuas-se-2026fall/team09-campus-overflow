@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, CursorResult, func, select
+from sqlalchemy import ColumnElement, CursorResult, Select, exists, func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from app.contexts.qa.domain.errors import (
     QuestionClosedError,
 )
 from app.contexts.qa.domain.question import Question, QuestionStatus
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.domain.value_objects import Body, Title
 from app.contexts.qa.domain.vote import VoteTarget
@@ -37,6 +37,37 @@ def _question_net_votes() -> ColumnElement[int]:
         .correlate(QuestionModel)
         .scalar_subquery()
     )
+
+
+def _apply_filters(
+    stmt: Select[Any], filters: QuestionFilter | None
+) -> Select[Any]:
+    """套用 F01 筛选谓词（COUNT 与当前页共用同一份条件，保证 total 同口径）。
+
+    多标签为 AND：去重后的每个 key 一个独立 EXISTS；同一 key 重复传参只算一次。
+    """
+    if filters is None:
+        return stmt
+    conditions: list[ColumnElement[bool]] = []
+    if filters.status is not None:
+        conditions.append(QuestionModel.status == filters.status.value)
+    if filters.created_from is not None:
+        conditions.append(QuestionModel.created_at >= filters.created_from)
+    if filters.created_to is not None:
+        conditions.append(QuestionModel.created_at <= filters.created_to)
+    for key in filters.tag_keys:
+        conditions.append(
+            exists(
+                select(1)
+                .select_from(QuestionTagModel)
+                .join(TagModel, TagModel.id == QuestionTagModel.tag_id)
+                .where(
+                    QuestionTagModel.question_id == QuestionModel.id,
+                    TagModel.key == key,
+                )
+            )
+        )
+    return stmt.where(*conditions)
 
 
 class SqlAlchemyQuestionRepository:
@@ -152,11 +183,17 @@ class SqlAlchemyQuestionRepository:
         )
 
     async def list_paginated(
-        self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
+        self,
+        page: int,
+        page_size: int,
+        sort: QuestionSort = QuestionSort.LATEST,
+        filters: QuestionFilter | None = None,
     ) -> tuple[list[Question], int]:
-        # 总条数与当前页同一事务快照，保证分页元数据一致
+        # 总条数与当前页同一事务快照 + 同一筛选谓词，保证分页元数据一致
         total = (
-            await self._session.execute(select(func.count()).select_from(QuestionModel))
+            await self._session.execute(
+                _apply_filters(select(func.count()).select_from(QuestionModel), filters)
+            )
         ).scalar_one()
         if sort is QuestionSort.VOTES:
             # v3 裁定 #4：净票数高→低；created_at/id 作确定性 tiebreaker 保证跨页稳定
@@ -171,7 +208,7 @@ class SqlAlchemyQuestionRepository:
             # id 作 tiebreaker 保证确定性全序，跨页不重复/不漏项
             order_by = (QuestionModel.created_at.desc(), QuestionModel.id.desc())
         stmt = (
-            select(QuestionModel)
+            _apply_filters(select(QuestionModel), filters)
             .order_by(*order_by)
             .offset((page - 1) * page_size)
             .limit(page_size)

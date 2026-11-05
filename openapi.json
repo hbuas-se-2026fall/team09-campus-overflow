@@ -237,7 +237,7 @@
         "tags": [
           "questions"
         ],
-        "summary": "问题列表（访客可用，默认按发布时间新→旧，可按净票数排序）",
+        "summary": "问题列表（访客可用；可按标签/状态/创建时间筛选，默认按发布时间新→旧）",
         "operationId": "list_questions_api_v1_questions_get",
         "parameters": [
           {
@@ -277,6 +277,83 @@
               "default": "latest"
             },
             "description": "排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）"
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感",
+              "title": "Tag"
+            },
+            "description": "按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/QuestionStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按状态筛选：open / closed；不传=全部（F01）",
+              "title": "Status"
+            },
+            "description": "按状态筛选：open / closed；不传=全部（F01）"
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "创建时间下界（闭区间，须带时区；F01）",
+              "title": "Created From"
+            },
+            "description": "创建时间下界（闭区间，须带时区；F01）"
+          },
+          {
+            "name": "created_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "创建时间上界（闭区间，须带时区；F01）",
+              "title": "Created To"
+            },
+            "description": "创建时间上界（闭区间，须带时区；F01）"
           }
         ],
         "responses": {

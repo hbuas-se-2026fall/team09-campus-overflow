@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -380,3 +381,200 @@ async def test_detail_invalid_id_returns_422(client: httpx.AsyncClient) -> None:
         resp = await client.get(f"/api/v1/questions/{bad}")
         assert resp.status_code == 422
         _assert_no_input_echo(resp)
+
+
+# ============================================================
+# F01 问题筛选（US-Q07）：标签 AND / 状态 / 时间闭区间 / 422 / 分页对账
+# ============================================================
+
+
+async def _create_question_with_tags(
+    client: httpx.AsyncClient, token: str, *, title: str, tags: list[str]
+) -> str:
+    resp = await client.post(
+        "/api/v1/questions",
+        json=_question_payload(
+            title=title,
+            body="真实技术讨论：说明背景、已尝试方案与期望结果，便于同学给出可执行建议。",
+            tags=tags,
+        ),
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def test_list_filter_multiple_tags_is_and_and_case_insensitive(
+    client: httpx.AsyncClient,
+) -> None:
+    """D3b=AND + D4=按 Tag.key：多标签须同时命中；大小写不敏感；重复传参去重。"""
+    token, _ = await _register_and_login(client)
+    both = await _create_question_with_tags(
+        client,
+        token,
+        title="React 与 TypeScript 如何组织前端状态？",
+        tags=["React", "TypeScript"],
+    )
+    react_only = await _create_question_with_tags(
+        client, token, title="React 组件测试如何选择断言粒度？", tags=["React"]
+    )
+    unrelated = await _create_question_with_tags(
+        client, token, title="PostgreSQL 复合唯一索引如何设计？", tags=["PostgreSQL"]
+    )
+
+    params: list[tuple[str, str]] = [
+        ("tag", "React"),
+        ("tag", "TypeScript"),
+        ("page_size", "100"),
+    ]
+    resp = await client.get("/api/v1/questions", params=params)
+    assert resp.status_code == 200, resp.text
+    ids = {item["id"] for item in resp.json()["items"]}
+    assert both in ids
+    assert react_only not in ids  # AND：缺少 TypeScript
+    assert unrelated not in ids
+
+    # 大小写不敏感 + 同一 key 重复传参只算一次（D3a/D4）
+    dup: list[tuple[str, str]] = [("tag", "react"), ("tag", "REACT"), ("page_size", "100")]
+    resp_dup = await client.get("/api/v1/questions", params=dup)
+    assert resp_dup.status_code == 200, resp_dup.text
+    ids_dup = {item["id"] for item in resp_dup.json()["items"]}
+    assert both in ids_dup and react_only in ids_dup
+
+
+async def test_list_filter_by_status_and_backward_compat(
+    client: httpx.AsyncClient,
+) -> None:
+    """D1：不传 status=全部；open/closed 单条件正确；与 sort=votes 组合 total 同口径。"""
+    token, _ = await _register_and_login(client)
+    open_id = await _create_question_with_tags(
+        client, token, title="React 服务端渲染与客户端缓存如何取舍？", tags=["React"]
+    )
+    closed_id = await _create_question_with_tags(
+        client, token, title="TypeScript 类型体操在业务代码中的边界？", tags=["TypeScript"]
+    )
+    close = await client.post(
+        f"/api/v1/questions/{closed_id}/close", headers=_auth(token)
+    )
+    assert close.status_code == 204, close.text
+
+    all_resp = await client.get(
+        "/api/v1/questions", params={"page_size": 100, "sort": "latest"}
+    )
+    assert all_resp.status_code == 200
+    all_ids = {item["id"] for item in all_resp.json()["items"]}
+    assert closed_id in all_ids  # 不传 status 时关闭问题仍在（向后兼容）
+
+    closed_resp = await client.get(
+        "/api/v1/questions", params={"status": "closed", "page_size": 100}
+    )
+    assert closed_resp.status_code == 200, closed_resp.text
+    closed_ids = {item["id"] for item in closed_resp.json()["items"]}
+    assert closed_id in closed_ids
+    assert open_id not in closed_ids
+
+    open_resp = await client.get(
+        "/api/v1/questions", params={"status": "open", "page_size": 100}
+    )
+    assert open_resp.status_code == 200, open_resp.text
+    open_ids = {item["id"] for item in open_resp.json()["items"]}
+    assert open_id in open_ids
+    assert closed_id not in open_ids
+
+    votes_resp = await client.get(
+        "/api/v1/questions",
+        params={"status": "open", "sort": "votes", "page_size": 100},
+    )
+    assert votes_resp.status_code == 200, votes_resp.text
+    assert votes_resp.json()["total"] == open_resp.json()["total"]
+
+
+async def test_list_filter_by_closed_time_range(client: httpx.AsyncClient) -> None:
+    """D2：时间闭区间 [from, to]；窗口外不命中。"""
+    token, _ = await _register_and_login(client)
+    qid = await _create_question_with_tags(
+        client, token, title="PostgreSQL 事务隔离级别如何选择？", tags=["PostgreSQL"]
+    )
+    now = datetime.now(UTC)
+    inside = await client.get(
+        "/api/v1/questions",
+        params={
+            "created_from": (now - timedelta(minutes=1)).isoformat(),
+            "created_to": (now + timedelta(minutes=1)).isoformat(),
+            "page_size": 100,
+        },
+    )
+    assert inside.status_code == 200, inside.text
+    assert qid in {item["id"] for item in inside.json()["items"]}
+
+    future = await client.get(
+        "/api/v1/questions",
+        params={"created_from": (now + timedelta(hours=1)).isoformat(), "page_size": 100},
+    )
+    assert future.status_code == 200, future.text
+    assert qid not in {item["id"] for item in future.json()["items"]}
+
+
+async def test_list_filter_invalid_params_return_422(client: httpx.AsyncClient) -> None:
+    """非法 status / 空 tag / naive 时间 / 逆序区间 / 非法时间格式 → 422，不回显输入。"""
+    cases: list[dict[str, str]] = [
+        {"status": "bogus"},
+        {"tag": ""},
+        {"created_from": "2026-01-01T00:00:00"},
+        {
+            "created_from": "2026-02-01T00:00:00+08:00",
+            "created_to": "2026-01-01T00:00:00+08:00",
+        },
+        {"created_to": "not-a-date"},
+    ]
+    for params in cases:
+        resp = await client.get("/api/v1/questions", params=params)
+        assert resp.status_code == 422, (params, resp.text)
+        _assert_no_input_echo(resp)
+
+
+async def test_list_filter_pagination_total_consistent(
+    client: httpx.AsyncClient,
+) -> None:
+    """F01 核心验收：COUNT 与当前页同口径——total/分页切片与筛选结果严格一致。"""
+    token, _ = await _register_and_login(client)
+    titles = (
+        "React 并发渲染下状态管理的取舍",
+        "TypeScript 泛型约束与组件 Props 设计",
+        "PostgreSQL 唯一索引与并发热点写入",
+    )
+    chain = ["React", "TypeScript", "PostgreSQL"]
+    created = [
+        await _create_question_with_tags(client, token, title=title, tags=chain)
+        for title in titles
+    ]
+
+    base: list[tuple[str, str]] = [
+        ("tag", "React"),
+        ("tag", "TypeScript"),
+        ("tag", "PostgreSQL"),
+        ("sort", "latest"),
+    ]
+    full = await client.get(
+        "/api/v1/questions", params=[*base, ("page", "1"), ("page_size", "100")]
+    )
+    assert full.status_code == 200, full.text
+    total = full.json()["total"]
+    assert total >= len(created)
+    assert full.json()["total_pages"] == -(-total // 100)
+
+    d1 = await client.get(
+        "/api/v1/questions", params=[*base, ("page", "1"), ("page_size", "2")]
+    )
+    d2 = await client.get(
+        "/api/v1/questions", params=[*base, ("page", "2"), ("page_size", "2")]
+    )
+    for resp in (d1, d2):
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total"] == total
+        assert resp.json()["total_pages"] == -(-total // 2)
+    ids1 = {item["id"] for item in d1.json()["items"]}
+    ids2 = {item["id"] for item in d2.json()["items"]}
+    assert not ids1 & ids2  # 跨页无重复
+    # 新发 3 帖是全表最新，必然落在前两页
+    assert set(created) <= ids1 | ids2

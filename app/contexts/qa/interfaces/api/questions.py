@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -21,8 +22,8 @@ from app.contexts.qa.application.get_question_use_case import GetQuestionUseCase
 from app.contexts.qa.application.list_questions_use_case import ListQuestionsUseCase
 from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQuery
 from app.contexts.qa.domain.comment import CommentTarget
-from app.contexts.qa.domain.question import Question
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.question import Question, QuestionStatus
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.vote import VoteTarget
 from app.contexts.qa.interfaces.api._common import (
     comment_response,
@@ -81,7 +82,7 @@ async def ask_question(
 @router.get(
     "",
     response_model=QuestionListResponse,
-    summary="问题列表（访客可用，默认按发布时间新→旧，可按净票数排序）",
+    summary="问题列表（访客可用；可按标签/状态/创建时间筛选，默认按发布时间新→旧）",
 )
 async def list_questions(
     questions: QuestionRepo,
@@ -91,11 +92,34 @@ async def list_questions(
         default=QuestionSort.LATEST,
         description="排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）",
     ),
+    tag: list[str] | None = Query(
+        default=None,
+        description="按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感",
+    ),
+    status_filter: QuestionStatus | None = Query(
+        default=None,
+        alias="status",
+        description="按状态筛选：open / closed；不传=全部（F01）",
+    ),
+    created_from: datetime | None = Query(
+        default=None, description="创建时间下界（闭区间，须带时区；F01）"
+    ),
+    created_to: datetime | None = Query(
+        default=None, description="创建时间上界（闭区间，须带时区；F01）"
+    ),
 ) -> QuestionListResponse:
-    # sort 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07 迭代 2 收紧）
+    # sort/status 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07）
+    # 逆序/无时区/tag 非法字符由 QuestionFilter.__post_init__ 抛 DomainValidationError，
+    # 经全局映射落 422；路由不新增 try/except（C2 收口口径）
+    filters = QuestionFilter(
+        tags=tuple(tag or ()),
+        status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
+    )
     use_case = ListQuestionsUseCase(questions)
     result = await use_case.execute(
-        ListQuestionsQuery(page=page, page_size=page_size, sort=sort)
+        ListQuestionsQuery(page=page, page_size=page_size, sort=sort, filters=filters)
     )
     return QuestionListResponse(
         items=[

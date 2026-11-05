@@ -15,7 +15,7 @@ from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQ
 from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.value_objects import Body, Title
 
 
@@ -24,6 +24,7 @@ class FakeQuestionRepository:
 
     def __init__(self) -> None:
         self.added: list[Question] = []
+        self.last_filters: QuestionFilter | None = None
 
     async def add(self, question: Question) -> None:
         self.added.append(question)
@@ -35,8 +36,13 @@ class FakeQuestionRepository:
         return next((q for q in self.added if q.id == question_id), None)
 
     async def list_paginated(
-        self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
+        self,
+        page: int,
+        page_size: int,
+        sort: QuestionSort = QuestionSort.LATEST,
+        filters: QuestionFilter | None = None,
     ) -> tuple[list[Question], int]:
+        self.last_filters = filters
         ordered = sorted(self.added, key=lambda q: (q.created_at, q.id), reverse=True)
         start = (page - 1) * page_size
         return ordered[start : start + page_size], len(self.added)
@@ -147,6 +153,16 @@ async def test_total_pages_zero_when_empty() -> None:
     assert result.items == []
     assert result.total == 0
     assert result.total_pages == 0  # 空库契约（2.8 openapi）
+
+
+async def test_list_passes_filters_to_repository() -> None:
+    """F01：用例只透传筛选对象，不自行解释条件。"""
+    repo = FakeQuestionRepository()
+    filters = QuestionFilter(tags=("React",))
+    await ListQuestionsUseCase(repo).execute(
+        ListQuestionsQuery(page=1, page_size=20, filters=filters)
+    )
+    assert repo.last_filters is filters
 
 
 async def test_get_question_returns_detail_view_or_none() -> None:

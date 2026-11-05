@@ -17,6 +17,7 @@ from app.contexts.identity.infrastructure.repository import SqlAlchemyUserReposi
 from app.contexts.qa.application.ask_question_use_case import AskQuestionUseCase
 from app.contexts.qa.application.commands import AskQuestionCommand
 from app.contexts.qa.domain.question import Question
+from app.contexts.qa.domain.repository import QuestionFilter
 from app.contexts.qa.domain.value_objects import Body, Title
 from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
 from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
@@ -112,6 +113,42 @@ async def test_list_paginated_orders_and_slices_exactly() -> None:
         assert [q.id for q in page2_items] == [q.id for q in full_items[3:6]]
         page3_items, _ = await repo.list_paginated(page=3, page_size=3)
         assert [q.id for q in page3_items] == [q.id for q in full_items[6:9]]
+
+
+async def test_list_paginated_filters_by_closed_time_range() -> None:
+    """F01：时间闭区间——边界行命中、区间外不命中，COUNT 与当前页同口径。"""
+    author_id = await _make_author()
+    base = datetime(2001, 1, 1, tzinfo=UTC)
+    seeds = [
+        Question(
+            id=uuid.uuid4(),
+            title=Title(f"时间筛选 {offset}"),
+            body=Body("正文"),
+            author_id=author_id,
+            created_at=base + timedelta(seconds=offset),
+        )
+        for offset in (-1, 0, 1, 2)
+    ]
+    async with session_factory() as session:
+        repo = SqlAlchemyQuestionRepository(session)
+        for seed in seeds:
+            await repo.add(seed)
+        await session.commit()
+
+        items, total = await repo.list_paginated(
+            page=1,
+            page_size=100000,
+            filters=QuestionFilter(
+                created_from=base, created_to=base + timedelta(seconds=1)
+            ),
+        )
+        # 闭区间 [base, base+1s]：边界两行必中，区间外两行必不中；
+        # 不假设窗口内无历史种子（本用例跨轮会累积），只断言成员与同口径
+        ids = {q.id for q in items}
+        assert {seeds[1].id, seeds[2].id} <= ids
+        assert seeds[0].id not in ids
+        assert seeds[3].id not in ids
+        assert total == len(items)
 
 
 async def test_list_paginated_tiebreaker_deterministic() -> None:

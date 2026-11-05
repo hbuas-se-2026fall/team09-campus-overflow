@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +15,7 @@ class ListQuestionsQuery:
     page: int
     page_size: int
     sort: QuestionSort = QuestionSort.LATEST
+    filters: QuestionFilter | None = None
 
 
 @dataclass(frozen=True, slots=True)

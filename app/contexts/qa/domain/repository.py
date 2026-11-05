@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 from uuid import UUID
 
 from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
-from app.contexts.qa.domain.question import Question
+from app.contexts.qa.domain.question import Question, QuestionStatus
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.domain.vote import Vote, VoteTarget
+from app.shared.errors import DomainValidationError
 
 
 class QuestionSort(StrEnum):
@@ -16,6 +19,49 @@ class QuestionSort(StrEnum):
 
     LATEST = "latest"  # 发布时间新→旧（默认）
     VOTES = "votes"  # 净票数高→低（v3 裁定 #1：up − down）
+
+
+@dataclass(frozen=True, slots=True)
+class QuestionFilter:
+    """列表筛选条件（F01/US-Q07）；空条件等价于不筛选（向后兼容，D1 裁定）。
+
+    - tags：原始显示名，构造时经 Tag 校验并归并为 key（大小写不敏感，与
+      tags.key 列同源，D4 裁定）；同名 key 去重，重复传参不报错也不重复计数；
+    - 时间闭区间 [created_from, created_to]，必须带时区（D2 裁定，naive → 422）；
+    - status=None 表示全部（D1）。
+    """
+
+    tags: tuple[str, ...] = ()
+    status: QuestionStatus | None = None
+    created_from: datetime | None = None
+    created_to: datetime | None = None
+    tag_keys: tuple[str, ...] = field(init=False, default=())
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("created_from", self.created_from),
+            ("created_to", self.created_to),
+        ):
+            if value is not None and (
+                value.tzinfo is None or value.utcoffset() is None
+            ):
+                raise DomainValidationError(f"{name} 必须包含时区信息")
+        if (
+            self.created_from is not None
+            and self.created_to is not None
+            and self.created_from > self.created_to
+        ):
+            raise DomainValidationError("created_from 不能晚于 created_to")
+
+        keys: list[str] = []
+        seen: set[str] = set()
+        for raw in self.tags:
+            # 空串/非法字符由 Tag 抛 DomainValidationError，经全局映射落 422（C2）
+            key = Tag(raw).key
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+        object.__setattr__(self, "tag_keys", tuple(keys))
 
 
 class QuestionRepository(Protocol):
@@ -40,12 +86,17 @@ class QuestionRepository(Protocol):
         ...
 
     async def list_paginated(
-        self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
+        self,
+        page: int,
+        page_size: int,
+        sort: QuestionSort = QuestionSort.LATEST,
+        filters: QuestionFilter | None = None,
     ) -> tuple[list[Question], int]:
         """分页列出问题，返回（当前页聚合列表，总条数）。
 
         sort=latest：按发布时间新→旧；sort=votes：按净票数高→低（v3 裁定 #4）。
         两种排序均以 id 作确定性 tiebreaker，跨页不重复/不漏项。
+        filters 的 COUNT 与当前页必须同口径（F01，避免 total 与结果不自洽）。
         """
         ...
 

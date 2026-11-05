@@ -33,7 +33,7 @@ class ListQuestionsUseCase:
 
     async def execute(self, query: ListQuestionsQuery) -> QuestionPage:
         items, total = await self._repository.list_paginated(
-            query.page, query.page_size, query.sort
+            query.page, query.page_size, query.sort, query.filters
         )
         return QuestionPage(
             items=items,
