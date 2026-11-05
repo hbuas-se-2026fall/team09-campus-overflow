@@ -20,6 +20,8 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
+from app.shared.errors import DomainValidationError
+
 
 class LedgerSource(StrEnum):
     """流水来源事件类型（(source, event_id) 复合唯一索引的第一键）。"""
@@ -48,7 +50,7 @@ class LedgerEntry:
 
     def __post_init__(self) -> None:
         if self.delta == 0:
-            raise ValueError("声誉变动值不能为 0")
+            raise DomainValidationError("声誉变动值不能为 0")
 
 
 @dataclass
@@ -72,7 +74,7 @@ class ReputationLedger:
         if any(
             e.source == entry.source and e.event_id == entry.event_id for e in self.entries
         ):
-            raise ValueError("该事件已记过账")
+            raise DomainValidationError("该事件已记过账")
         self.entries.append(entry)
 
 

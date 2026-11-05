@@ -21,10 +21,8 @@ from app.contexts.qa.application.ask_question_use_case import AskQuestionUseCase
 from app.contexts.qa.application.commands import AskQuestionCommand
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.infrastructure.models import QuestionModel, TagModel
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyQuestionRepository,
-    SqlAlchemyTagCatalogRepository,
-)
+from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
+from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
 from app.shared.engine import session_factory
 
 pytestmark = pytest.mark.integration

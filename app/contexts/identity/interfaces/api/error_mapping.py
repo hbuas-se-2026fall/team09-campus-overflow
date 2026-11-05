@@ -18,12 +18,14 @@ from app.contexts.identity.domain.errors import (
     IdentityAlreadyExistsError,
     IdentityDomainError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
 )
 
 IDENTITY_ERROR_STATUS: dict[type[Exception], int] = {
     EmailAlreadyExistsError: status.HTTP_409_CONFLICT,
     IdentityAlreadyExistsError: status.HTTP_409_CONFLICT,
     InvalidCredentialsError: status.HTTP_401_UNAUTHORIZED,
+    InvalidRefreshTokenError: status.HTTP_401_UNAUTHORIZED,
     AccountLockedError: status.HTTP_423_LOCKED,
     # 其余 IdentityDomainError 子类（弱密码/缺身份/未知角色）：422
     IdentityDomainError: status.HTTP_422_UNPROCESSABLE_CONTENT,

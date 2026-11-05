@@ -14,8 +14,8 @@ from app.contexts.qa.interfaces.api.routes import answers_router as qa_answers_r
 from app.contexts.qa.interfaces.api.routes import router as qa_router
 from app.contexts.qa.interfaces.api.routes import tags_router as qa_tags_router
 from app.contexts.reputation.interfaces.api.routes import reputation_router
-from app.shared.body_limit import BodyLimitMiddleware
-from app.shared.exception_handlers import (
+from app.platform.http.body_limit import BodyLimitMiddleware
+from app.platform.http.exception_handlers import (
     db_unavailable_handler,
     dbapi_error_handler,
     request_validation_exception_handler,

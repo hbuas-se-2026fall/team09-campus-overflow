@@ -1,13 +1,15 @@
 """架构约束测试（不连库，进 CI）：把分层/边界规则从注释升级为可执行断言。
 
-覆盖五条硬规则：
+覆盖七条硬规则：
 1. domain 不依赖任何框架（fastapi/starlette/sqlalchemy/redis/celery/asyncpg），
    也不 import 本上下文的 application/infrastructure/interfaces（不向外依赖）；
 2. application 不 import infrastructure / interfaces（依赖倒置方向固定）；
 3. infrastructure 不 import interfaces（适配器不入站）；
 4. 跨上下文 import 只允许 interfaces 层，且目标只能是对方的 interfaces
    或对方 application/ports.py（已发布语言）；
-5. reputation 任何层不得 import qa（事件边界靠 DTO，不靠类型耦合）。
+5. reputation 任何层不得 import qa（事件边界靠 DTO，不靠类型耦合）；
+6. app/shared 保持框架无关（sqlalchemy/redis 内核允许，fastapi/starlette 禁止）；
+7. app.platform 只允许 interfaces 层与 main.py 使用。
 """
 
 from __future__ import annotations
@@ -132,3 +134,47 @@ def test_reputation_never_imports_qa() -> None:
             assert not module.startswith(
                 "app.contexts.qa"
             ), f"reputation 必须对 qa 零 import: {path} → {module}"
+
+
+def test_shared_stays_framework_free() -> None:
+    for path, modules in _modules():
+        if _parts(path)[0] != "shared":
+            continue
+        for module in modules:
+            assert not module.startswith(
+                ("fastapi", "starlette")
+            ), f"shared 内核不得依赖 Web 框架: {path} → {module}"
+
+
+def test_platform_imported_only_by_interfaces_and_main() -> None:
+    for path, modules in _modules():
+        parts = _parts(path)
+        allowed = (
+            parts[0] == "platform"
+            or path.name == "main.py"
+            or (parts[0] == "contexts" and "interfaces" in parts)
+        )
+        for module in modules:
+            if not module.startswith("app.platform"):
+                continue
+            assert allowed, (
+                f"app.platform 只允许 interfaces 与 main.py 使用: {path} → {module}"
+            )
+
+
+def test_no_bare_value_error_raised() -> None:
+    """输入校验统一 DomainValidationError（ValueError 子类），禁止裸 raise ValueError。
+
+    ValueError 子类仍被 Pydantic validator / 路由 422 兜底识别，行为等价；
+    此断言防止后续新增校验点绕过统一异常类型。
+    """
+    offenders: list[str] = []
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            target = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if isinstance(target, ast.Name) and target.id == "ValueError":
+                offenders.append(f"{path.relative_to(APP_ROOT)}:{node.lineno}")
+    assert not offenders, f"裸 raise ValueError 须改用 DomainValidationError: {offenders}"

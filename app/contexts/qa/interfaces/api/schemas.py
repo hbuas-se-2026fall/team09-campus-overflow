@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.contexts.qa.domain.question import QuestionStatus
+from app.shared.errors import DomainValidationError
 
 
 class AskQuestionRequest(BaseModel):
@@ -150,5 +151,5 @@ class EditQuestionRequest(BaseModel):
     @model_validator(mode="after")
     def _require_at_least_one_field(self) -> EditQuestionRequest:
         if self.title is None and self.body is None:
-            raise ValueError("至少提供 title 或 body 之一")
+            raise DomainValidationError("至少提供 title 或 body 之一")
         return self

@@ -21,13 +21,11 @@ from app.contexts.qa.domain.repository import (
     TagCatalogRepository,
     VoteRepository,
 )
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyAnswerRepository,
-    SqlAlchemyCommentRepository,
-    SqlAlchemyQuestionRepository,
-    SqlAlchemyTagCatalogRepository,
-    SqlAlchemyVoteRepository,
-)
+from app.contexts.qa.infrastructure.answer_repository import SqlAlchemyAnswerRepository
+from app.contexts.qa.infrastructure.comment_repository import SqlAlchemyCommentRepository
+from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
+from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
+from app.contexts.qa.infrastructure.vote_repository import SqlAlchemyVoteRepository
 from app.platform.http.deps import SessionDep
 
 

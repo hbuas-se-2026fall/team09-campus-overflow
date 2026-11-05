@@ -20,3 +20,17 @@ class LoginCommand:
 
     identifier: str
     password: str
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshTokenCommand:
+    """刷新用例的输入命令（US-L02 轮换）。"""
+
+    refresh_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class LogoutCommand:
+    """登出用例的输入命令（US-L03 吊销，幂等）。"""
+
+    refresh_token: str

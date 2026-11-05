@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.shared.errors import DomainValidationError
 from app.shared.text_validation import reject_unsafe_text
 
 _TITLE_MIN_LENGTH = 1
@@ -20,7 +21,7 @@ class Title:
         normalized = self.value.strip()
         reject_unsafe_text(normalized, field_name="标题")
         if not (_TITLE_MIN_LENGTH <= len(normalized) <= _TITLE_MAX_LENGTH):
-            raise ValueError(
+            raise DomainValidationError(
                 f"标题需 {_TITLE_MIN_LENGTH}~{_TITLE_MAX_LENGTH} 字（去首尾空白后），"
                 f"实际 {len(normalized)} 字"
             )
@@ -37,7 +38,7 @@ class Body:
         normalized = self.value.strip()
         reject_unsafe_text(normalized, field_name="正文")
         if not (_BODY_MIN_LENGTH <= len(normalized) <= _BODY_MAX_LENGTH):
-            raise ValueError(
+            raise DomainValidationError(
                 f"正文需 {_BODY_MIN_LENGTH}~{_BODY_MAX_LENGTH} 字（去首尾空白后），"
                 f"实际 {len(normalized)} 字"
             )

@@ -8,12 +8,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config.settings import get_settings
 from app.contexts.identity.application.login_use_case import LoginUseCase
+from app.contexts.identity.application.logout_use_case import LogoutUseCase
 from app.contexts.identity.application.ports import (
     ACCESS_TOKEN_TTL,
     LOGIN_FAILURE_THRESHOLD,
     LOGIN_LOCKOUT_WINDOW,
     REFRESH_TOKEN_TTL,
 )
+from app.contexts.identity.application.refresh_token_use_case import RefreshTokenUseCase
 from app.contexts.identity.application.register_use_case import RegisterUseCase
 from app.contexts.identity.domain.repository import UserRepository
 from app.contexts.identity.domain.user import Role, User
@@ -47,6 +49,16 @@ def build_login_use_case(users: UserRepository) -> LoginUseCase:
         refresh_store,
         login_attempt_guard,
     )
+
+
+def build_refresh_token_use_case(users: UserRepository) -> RefreshTokenUseCase:
+    """组装刷新用例：仓储 + 令牌服务 + 刷新存储（US-L02 轮换）。"""
+    return RefreshTokenUseCase(users, token_service, refresh_store)
+
+
+def build_logout_use_case() -> LogoutUseCase:
+    """组装登出用例：令牌服务 + 刷新存储（US-L03 幂等吊销）。"""
+    return LogoutUseCase(token_service, refresh_store)
 
 
 def get_user_repository(session: SessionDep) -> UserRepository:

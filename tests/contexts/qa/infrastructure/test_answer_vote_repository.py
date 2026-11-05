@@ -23,12 +23,10 @@ from app.contexts.qa.domain.errors import AlreadyVotedError
 from app.contexts.qa.domain.question import Question
 from app.contexts.qa.domain.value_objects import Body
 from app.contexts.qa.domain.vote import Vote, VoteDirection, VoteTarget
-from app.contexts.qa.infrastructure.repository import (
-    SqlAlchemyAnswerRepository,
-    SqlAlchemyQuestionRepository,
-    SqlAlchemyTagCatalogRepository,
-    SqlAlchemyVoteRepository,
-)
+from app.contexts.qa.infrastructure.answer_repository import SqlAlchemyAnswerRepository
+from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
+from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
+from app.contexts.qa.infrastructure.vote_repository import SqlAlchemyVoteRepository
 from app.shared.engine import session_factory
 
 pytestmark = pytest.mark.integration
@@ -173,7 +171,7 @@ async def test_accepted_answer_sorts_first_regardless_of_votes() -> None:
     （answers.is_accepted 与 questions.accepted_answer_id），只写答案侧会在
     库里留脏行（第八路观察点 4：每次 pytest 泄漏 1 行），故问题侧同步落库。
     """
-    from app.contexts.qa.infrastructure.repository import SqlAlchemyQuestionRepository
+    from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
 
     author = await _make_author()
     question = await _make_question(author)

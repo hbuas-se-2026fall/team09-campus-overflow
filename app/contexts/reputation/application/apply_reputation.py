@@ -27,6 +27,7 @@ from app.contexts.reputation.domain.ledger import (
     LedgerSource,
 )
 from app.contexts.reputation.domain.repository import ReputationLedgerRepository
+from app.shared.errors import DomainValidationError
 
 # 分派规则表（细案 G2）：(target_type, direction) → (delta, reason)
 _VOTE_DELTAS: dict[tuple[str, str], tuple[int, str]] = {
@@ -42,7 +43,7 @@ def vote_delta(target_type: str, direction: str) -> tuple[int, str]:
     try:
         return _VOTE_DELTAS[(target_type, direction)]
     except KeyError as exc:
-        raise ValueError(f"未知的投票目标/方向: {target_type}/{direction}") from exc
+        raise DomainValidationError(f"未知的投票目标/方向: {target_type}/{direction}") from exc
 
 
 async def apply_vote_event(

@@ -10,7 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
-from app.shared.body_limit import MAX_BODY_BYTES
+from app.platform.http.body_limit import MAX_BODY_BYTES
 
 
 def _client() -> AsyncClient:

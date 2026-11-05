@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Response, status
 
-from app.contexts.identity.application.commands import LoginCommand, RegisterCommand
-from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
+from app.contexts.identity.application.commands import (
+    LoginCommand,
+    LogoutCommand,
+    RefreshTokenCommand,
+    RegisterCommand,
+)
+from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL
 from app.contexts.identity.domain.user import User
 from app.contexts.identity.interfaces.api.deps import (
     CurrentUser,
     UserRepo,
     build_login_use_case,
+    build_logout_use_case,
+    build_refresh_token_use_case,
     build_register_use_case,
-    refresh_store,
-    token_service,
 )
 from app.contexts.identity.interfaces.api.schemas import (
     LoginRequest,
@@ -94,25 +99,12 @@ async def refresh(
     payload: RefreshRequest,
     users: UserRepo,
 ) -> TokenPairResponse:
-    decoded = token_service.decode_refresh(payload.refresh_token)
-    if decoded is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌无效或已过期")
-    user_id, jti = decoded
-    # 先读用户再消耗令牌（跨存储顺序修正，第八路观察点 3）：DB 读失败返回 503 时
-    # 令牌未被 GETDEL 烧毁，客户端按契约重试可成功；先消耗再读会让 503 重试必然 401。
-    user = await users.get_by_id(user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
-    consumed = await refresh_store.consume(jti)
-    if consumed is None or consumed != user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="刷新令牌已失效")
-
-    access_token = token_service.issue_access(user)
-    refresh_token, new_jti = token_service.issue_refresh(user)
-    await refresh_store.save(new_jti, user.id, REFRESH_TOKEN_TTL)
+    pair = await build_refresh_token_use_case(users).execute(
+        RefreshTokenCommand(refresh_token=payload.refresh_token)
+    )
     return TokenPairResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
         expires_in=int(ACCESS_TOKEN_TTL.total_seconds()),
     )
 
@@ -123,10 +115,9 @@ async def refresh(
     summary="退出登录（吊销 Refresh 令牌，幂等 204）",
 )
 async def logout(payload: RefreshRequest) -> Response:
-    decoded = token_service.decode_refresh(payload.refresh_token)
-    if decoded is not None:
-        _, jti = decoded
-        await refresh_store.revoke(jti)
+    await build_logout_use_case().execute(
+        LogoutCommand(refresh_token=payload.refresh_token)
+    )
     # 幂等：无效/已吊销令牌同样 204，不暴露令牌状态
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
