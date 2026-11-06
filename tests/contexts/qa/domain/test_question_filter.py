@@ -71,3 +71,32 @@ def test_illegal_tag_character_rejected() -> None:
 def test_status_is_preserved() -> None:
     filters = QuestionFilter(status=QuestionStatus.CLOSED)
     assert filters.status is QuestionStatus.CLOSED
+
+
+def test_too_many_distinct_tag_keys_rejected() -> None:
+    """评审加固：AND 语义下 >5 个不同 key 必然空结果，域内直接 422 拒绝。"""
+    with pytest.raises(DomainValidationError, match="至多 5 个"):
+        QuestionFilter(tags=("alpha", "beta", "gamma", "delta", "epsilon", "zeta"))
+
+
+def test_duplicate_tags_do_not_count_toward_cap() -> None:
+    """上限按去重后的 key 计：重复传参不影响判定（D3a 语义）。"""
+    filters = QuestionFilter(
+        tags=("React", "react", "React", "TypeScript", "React", "PostgreSQL")
+    )
+    assert filters.tag_keys == ("react", "typescript", "postgresql")
+
+
+def test_exactly_five_distinct_tags_allowed() -> None:
+    """边界：恰好 5 个不同 key 放行（钉住 `>` 而非 `>=`，同时守住常量被误改）。"""
+    filters = QuestionFilter(
+        tags=("React", "TypeScript", "PostgreSQL", "Redis", "Docker")
+    )
+    assert filters.tag_keys == (
+        "react",
+        "typescript",
+        "postgresql",
+        "redis",
+        "docker",
+    )
+

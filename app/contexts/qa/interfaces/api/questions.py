@@ -94,7 +94,10 @@ async def list_questions(
     ),
     tag: list[str] | None = Query(
         default=None,
-        description="按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感",
+        description=(
+            "按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感；"
+            "去重后至多 5 个（与每题标签上限一致，超限 422）"
+        ),
     ),
     status_filter: QuestionStatus | None = Query(
         default=None,

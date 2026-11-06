@@ -99,3 +99,22 @@
 
 - US-Q07 的**关键词检索**由 F02 收口；按课程筛选由 F17（依赖 F16）。
 - 测试数据：本轮集成用例创建了真实技术内容的问题（React/TypeScript/PostgreSQL 标签），按项目数据纪律保留；不生成占位或随机字符串标题。
+
+## 九、评审加固（2026-11-05，双代理校验确认 minor）
+
+- **发现**：`tag` 可重复参数无数量上限——超长 EXISTS 链无防护；且 AND 语义下"每题 ≤5 标签"不变式（写入路径 `TagCatalog.resolve` 强制）保证 >5 个不同 key 必然空结果，服务端却仍执行完整 SQL。
+- **修复**：`QuestionFilter.__post_init__` 对去重后 tag_keys 复用 `_MAX_TAGS_PER_QUESTION`（=5），超限抛 `DomainValidationError` → 全局映射 422；域内拒绝，不进 SQL。
+- **测试**：domain +2（超限 422 / 重复传参按去重 key 计数不入上限）；API 集成 +1（>5 → 422 且不回显输入、重复传参去重后 ≤5 → 200）。
+- **文档**：`api-contract-notes.md` 422 口径补"tag 去重后超过 5 个"。
+- **复核**：ruff 0 / mypy 100 文件 0 / `--check` 一致 / domain 12 + 定向集成全绿。
+
+## 十、第二批复核补强（2026-11-06）
+
+| 项 | 内容 |
+|:--|:--|
+| 边界单测 | 新增 `test_exactly_five_distinct_tags_allowed`：恰好 5 个不同 key 必须放行，钉住 `>` 而非 `>=`，同时守护 `_MAX_TAGS_PER_QUESTION` 常量不被误改（5→4 时该用例会红） |
+| 契约可读性 | `tag` Query description 补「去重后至多 5 个（与每题标签上限一致，超限 422）」，前端从 `openapi.json` 即可见约束；重导出契约 |
+| 门禁 | ruff 0 / mypy **100 文件 0** / `--check` 一致 / domain filter **13 passed** |
+| 集成复跑 | 本会话 Docker 引擎未运行，DB 依赖用例统一 503，属环境未就绪（非代码回归）；引擎拉起后可复跑 API 33 条 |
+
+两处均为加固级零行为变更：上限判定逻辑未改，仅补边界测试与契约描述。

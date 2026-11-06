@@ -39,7 +39,7 @@
   - `tag` **可重复传参**（`?tag=a&tag=b`），多个标签为 **AND**；按标签归并键匹配，**大小写不敏感**；同一 key 重复传参自动去重
   - `status`：`open` / `closed`；**省略 = 全部**（向后兼容）
   - `created_from` / `created_to`：创建时间**闭区间**，**必须带时区**；naive → 422；`created_from > created_to` → 422
-  - 空 `tag=`（空串）、非法字符标签、非法时间格式 → 422
+  - 空 `tag=`（空串）、非法字符标签、非法时间格式、tag 去重后超过 5 个（与每题标签上限一致）→ 422
   - 筛选条件同时作用于 `total` 统计与当前页数据（同口径）；筛选后超总页仍 **200 空列表**
 - 响应：`{items, total, page, page_size, total_pages}`；**空库 `total_pages = 0`**
 - 排序：`created_at` 新→旧（同刻按 id 定序，跨页零重复零漏项）；`sort=votes` 按净票数，可与全部筛选组合

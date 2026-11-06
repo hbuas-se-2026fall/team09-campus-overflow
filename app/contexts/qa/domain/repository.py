@@ -9,7 +9,7 @@ from uuid import UUID
 from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question, QuestionStatus
-from app.contexts.qa.domain.tag import Tag
+from app.contexts.qa.domain.tag import _MAX_TAGS_PER_QUESTION, Tag
 from app.contexts.qa.domain.vote import Vote, VoteTarget
 from app.shared.errors import DomainValidationError
 
@@ -27,6 +27,8 @@ class QuestionFilter:
 
     - tags：原始显示名，构造时经 Tag 校验并归并为 key（大小写不敏感，与
       tags.key 列同源，D4 裁定）；同名 key 去重，重复传参不报错也不重复计数；
+      去重后数量复用每题标签上限（评审加固：AND 语义下超限必然空结果，
+      直接 422 拒绝，防超长 EXISTS 链）；
     - 时间闭区间 [created_from, created_to]，必须带时区（D2 裁定，naive → 422）；
     - status=None 表示全部（D1）。
     """
@@ -61,6 +63,11 @@ class QuestionFilter:
             if key not in seen:
                 seen.add(key)
                 keys.append(key)
+        if len(keys) > _MAX_TAGS_PER_QUESTION:
+            # AND 语义：每题标签 ≤5，超限必然空结果——域内直接拒绝，不进 SQL
+            raise DomainValidationError(
+                f"标签筛选至多 {_MAX_TAGS_PER_QUESTION} 个，实际 {len(keys)} 个"
+            )
         object.__setattr__(self, "tag_keys", tuple(keys))
 
 

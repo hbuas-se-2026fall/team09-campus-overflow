@@ -578,3 +578,22 @@ async def test_list_filter_pagination_total_consistent(
     assert not ids1 & ids2  # 跨页无重复
     # 新发 3 帖是全表最新，必然落在前两页
     assert set(created) <= ids1 | ids2
+
+
+async def test_list_filter_too_many_distinct_tags_returns_422(
+    client: httpx.AsyncClient,
+) -> None:
+    """评审加固：去重后 >5 个 tag key → 422；重复传参去重后 ≤5 → 200。"""
+    too_many: list[tuple[str, str]] = [
+        ("tag", t) for t in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta")
+    ]
+    resp = await client.get("/api/v1/questions", params=too_many)
+    assert resp.status_code == 422, resp.text
+    _assert_no_input_echo(resp)
+
+    dedup_ok: list[tuple[str, str]] = [
+        ("tag", t)
+        for t in ("React", "react", "React", "TypeScript", "React", "PostgreSQL")
+    ]
+    ok = await client.get("/api/v1/questions", params=dedup_ok)
+    assert ok.status_code == 200, ok.text
