@@ -99,8 +99,8 @@
 
 | 门禁 | 结果 |
 |:---|:---|
-| pytest | CI 单测口径 298 passed（总用例 480 条，182 条 integration 需 PG+Redis） |
-| 覆盖率 | TOTAL 83.25% ≥ 70；domain 层 94% ≥ 90 |
+| pytest | CI 单测口径 298 passed（总用例 482 条，184 条 integration 需 PG+Redis） |
+| 覆盖率 | TOTAL 83.40% ≥ 70；domain 层 94% ≥ 90 |
 | ruff | 0 违规 |
 | mypy --strict | 0 错误（135 文件） |
 | 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；26 paths / 29 ops） |

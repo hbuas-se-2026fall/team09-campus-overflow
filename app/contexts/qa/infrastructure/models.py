@@ -47,6 +47,23 @@ class QuestionModel(Base):
     # 关闭态（US-Q08，迭代 5）：open/closed；server_default 让存量行随迁移自动归 open
     status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="open")
 
+    __table_args__ = (
+        # F09：F02 的 ILIKE '%q%' 标题/正文模糊搜索走 pg_trgm GIN；模型同步声明防
+        # 后续 alembic --autogenerate 误判为漂移（迁移内显式 CREATE EXTENSION pg_trgm）
+        Index(
+            "ix_questions_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_questions_body_trgm",
+            "body",
+            postgresql_using="gin",
+            postgresql_ops={"body": "gin_trgm_ops"},
+        ),
+    )
+
 
 class AnswerModel(Base):
     """answers 表：Answer 聚合根的持久化（迭代 2）。
