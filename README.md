@@ -72,7 +72,7 @@
 | | `GET /api/v1/questions/{id}/bounty` | 查询进行中的悬赏（公开；无则 `null`） |
 | 积分 | `GET /api/v1/users/me/points` | 查询本人可消费积分余额与流水（需登录；教师首次访问惰性发放 100 分） |
 | 声誉 | `GET /api/v1/users/{id}/reputation` | 本人声誉总值与变动流水（他人 403） |
-| 榜单 | `GET /api/v1/leaderboard` | 声誉排行榜（公开；`week`/`month`/`semester`） |
+| 榜单 | `GET /api/v1/leaderboard` | 声誉排行榜（公开；`week`/`month`/`semester`；60s 热榜缓存，Redis 故障降级直查库） |
 | 通知 | `GET /api/v1/notifications` | 本人通知列表（分页 + 未读筛选，含可选 `question_id`） |
 | | `GET /api/v1/notifications/unread-count` | 未读通知数 |
 | | `POST /api/v1/notifications/{id}/read` | 单条标记已读（幂等 204） |
@@ -99,10 +99,10 @@
 
 | 门禁 | 结果 |
 |:---|:---|
-| pytest | CI 单测口径 288 passed（总用例 468 条，180 条 integration 需 PG+Redis） |
-| 覆盖率 | TOTAL 82.90% ≥ 70；domain 层 94% ≥ 90 |
+| pytest | CI 单测口径 298 passed（总用例 480 条，182 条 integration 需 PG+Redis） |
+| 覆盖率 | TOTAL 83.25% ≥ 70；domain 层 94% ≥ 90 |
 | ruff | 0 违规 |
-| mypy --strict | 0 错误（134 文件） |
+| mypy --strict | 0 错误（135 文件） |
 | 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；26 paths / 29 ops） |
 
 ## 目录结构

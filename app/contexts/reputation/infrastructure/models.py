@@ -40,4 +40,11 @@ class ReputationLedgerModel(Base):
         Index("uq_reputation_source_event", "source", "event_id", unique=True),
         # 本人流水倒序读取路径（US-REP02）
         Index("ix_reputation_user_occurred", "user_id", "occurred_at"),
+        # F08：时间窗口聚合覆盖索引（occurred_at, user_id INCLUDE delta），支持 Index-Only Scan
+        Index(
+            "ix_reputation_occurred_user_inc_delta",
+            "occurred_at",
+            "user_id",
+            postgresql_include=["delta"],
+        ),
     )
