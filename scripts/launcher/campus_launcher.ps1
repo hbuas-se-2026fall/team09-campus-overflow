@@ -1,4 +1,4 @@
-# CampusOverflow 一键启动器（Windows PowerShell 5.1 兼容）
+﻿# CampusOverflow 一键启动器（Windows PowerShell 5.1 兼容）
 # 源码：scripts/launcher/campus_launcher.ps1；编译产物：仓库根 CampusOverflow-Launcher.exe
 # 用法：双击 exe 进菜单；或  -Check 仅做环境自检
 # 职责：docker compose 起 db/redis → alembic upgrade → 三个窗口分别起 API/worker/前端 → 开浏览器
@@ -28,7 +28,7 @@ function Get-ExcludedPortRanges {
     $out = & netsh interface ipv4 show excludedportrange protocol=tcp 2>$null
     $ranges = @()
     foreach ($line in $out) {
-        if ($line -match '^\s*(\d+)\s*-\s*(\d+)\s*$') { $ranges += ,@([int]$Matches[1], [int]$Matches[2]) }
+        if ($line -match '^\s*(\d+)\s+(?:-\s*)?(\d+)\s*\*?\s*$') { $ranges += ,@([int]$Matches[1], [int]$Matches[2]) }
     }
     return $ranges
 }
@@ -39,12 +39,24 @@ function Test-PortUsable([int]$p, $excluded) {
     return $true
 }
 
+function Test-PortExcluded([int]$p, $excluded) {
+    foreach ($r in $excluded) { if ($p -ge $r[0] -and $p -le $r[1]) { return $true } }
+    return $false
+}
+
 function Select-ApiPort {
     $excluded = Get-ExcludedPortRanges
     foreach ($p in @(8123, 8500, 8600, 8700, 9000, 9100, 9200, 5373)) {
         if (Test-PortUsable $p $excluded) { return $p }
     }
     throw '候选端口全部被占/被保留，请手动指定（编辑脚本 Select-ApiPort 候选表）。'
+}
+
+function Select-ServicePort([int[]]$candidates, $excluded) {
+    foreach ($p in $candidates) {
+        if (-not (Test-PortExcluded $p $excluded)) { return $p }
+    }
+    return $candidates[0]
 }
 
 # ---------- pnpm 解析（PATH 损坏时兜底：npm prefix / 常见安装位逐个探测） ----------
@@ -96,10 +108,13 @@ function Invoke-Check {
     if (Test-Path -LiteralPath (Join-Path $root 'frontend\node_modules')) { Write-Host '[√] 前端依赖已装' -ForegroundColor Green }
     else { Write-Host '[!] 前端依赖未装（启动时会自动 pnpm install，首次较慢）' -ForegroundColor Yellow }
 
+    $excluded = Get-ExcludedPortRanges
+    $dbPort = Select-ServicePort @(5432, 15432, 25432) $excluded
+    $redisPort = Select-ServicePort @(6379, 16379, 26379) $excluded
     $apiPort = Select-ApiPort
-    Write-Host "[√] API 端口可用：$apiPort（已避开 Windows 保留区）" -ForegroundColor Green
+    Write-Host "[√] 端口可用：API=$apiPort / DB=$dbPort / Redis=$redisPort（已避开 Windows 保留区）" -ForegroundColor Green
     if ($ok) { Write-Host '自检通过，可以启动。' -ForegroundColor Green } else { Write-Host '自检存在 × 项，先修复再启动。' -ForegroundColor Yellow }
-    return $apiPort
+    return @{ ApiPort = $apiPort; DbPort = $dbPort; RedisPort = $redisPort }
 }
 
 # ---------- 启动 ----------
@@ -109,7 +124,15 @@ function New-ServiceWindow([string]$title, [string]$command) {
 
 function Start-All {
     $root = Find-Root
-    $apiPort = Invoke-Check
+    $ports = Invoke-Check
+    $apiPort = $ports.ApiPort
+    $dbPort = $ports.DbPort
+    $redisPort = $ports.RedisPort
+    $env:DB_PORT = "$dbPort"
+    $env:REDIS_PORT = "$redisPort"
+    $env:DATABASE_URL = "postgresql+asyncpg://campus:campus@localhost:$dbPort/campus"
+    $env:REDIS_URL = "redis://localhost:$redisPort/0"
+    $env:CELERY_BROKER_URL = "redis://localhost:$redisPort/1"
     Write-Host "`n开始启动全栈……" -ForegroundColor Cyan
 
     $dockerCmd = Get-Docker
@@ -133,8 +156,9 @@ function Start-All {
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'alembic upgrade 失败' }
     Write-Host '[√] 迁移到 head' -ForegroundColor Green
 
-    New-ServiceWindow 'CO-API' "Set-Location -LiteralPath '$root'; & '.venv\Scripts\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port $apiPort"
-    New-ServiceWindow 'CO-WORKER' "Set-Location -LiteralPath '$root'; & '.venv\Scripts\python.exe' -m celery -A app.contexts.reputation.infrastructure.celery_app worker --pool=solo -l info"
+    $envInit = "`$env:DB_PORT='$dbPort'; `$env:REDIS_PORT='$redisPort'; `$env:DATABASE_URL='$($env:DATABASE_URL)'; `$env:REDIS_URL='$($env:REDIS_URL)'; `$env:CELERY_BROKER_URL='$($env:CELERY_BROKER_URL)'"
+    New-ServiceWindow 'CO-API' "$envInit; Set-Location -LiteralPath '$root'; & '.venv\Scripts\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port $apiPort"
+    New-ServiceWindow 'CO-WORKER' "$envInit; Set-Location -LiteralPath '$root'; & '.venv\Scripts\python.exe' -m celery -A app.contexts.reputation.infrastructure.celery_app worker --pool=solo -l info"
     $pnpmCmd = Get-Pnpm
     if (-not $pnpmCmd) { Pop-Location; throw '找不到 pnpm，无法启动前端' }
     $feInstall = "if (-not (Test-Path 'node_modules')) { & '$pnpmCmd' install }; & '$pnpmCmd' dev"

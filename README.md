@@ -155,7 +155,8 @@ pip install -r requirements-dev.txt
 # 2. 基础设施（db + redis，等 healthcheck 通过）
 docker compose up -d
 
-# 3. 配置（可选：仓库根 .env 覆盖，字段均有开发默认值；生产必须覆盖 jwt_secret）
+# 3. 配置（可选：复制 .env.example 为 .env 覆盖，字段均有开发默认值；生产必须覆盖 jwt_secret）
+#    db_port / redis_port（Windows 若 5432/6379 落入 Hyper-V 保留段可改用 15432/16379）
 #    database_url / redis_url / celery_broker_url / jwt_secret
 #    db_pool_size（0=NullPool 默认；>0 启用连接池，见 ADR-003）
 
