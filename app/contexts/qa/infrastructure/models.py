@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -180,4 +190,85 @@ class QuestionTagModel(Base):
     __table_args__ = (
         # 按标签反查问题（未来发现域）与列表批量装配 tags 的访问路径
         Index("ix_question_tags_tag", "tag_id"),
+    )
+
+
+class PointsAccountModel(Base):
+    """可消费积分账户（F07/D12）：与声誉账本分离。"""
+
+    __tablename__ = "points_accounts"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    balance: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        # 库层兜底：应用层条件扣减之外，任何路径都不得把余额写成负数
+        CheckConstraint(
+            "balance >= 0", name="ck_points_accounts_balance_non_negative"
+        ),
+    )
+
+
+class PointLedgerModel(Base):
+    """积分流水（只追加）：(source, event_id) 唯一保证同一事件恰记一次。"""
+
+    __tablename__ = "point_ledgers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        Index("uq_point_ledgers_source_event", "source", "event_id", unique=True),
+    )
+
+
+class QuestionBountyModel(Base):
+    """教师悬赏（F07/D13）：同题仅一个 open 悬赏（部分唯一索引）。"""
+
+    __tablename__ = "question_bounties"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="open")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_question_bounties_open",
+            "question_id",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
     )

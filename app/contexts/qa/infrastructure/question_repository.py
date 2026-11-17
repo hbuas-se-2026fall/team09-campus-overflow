@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, CursorResult, func, select
+from sqlalchemy import ColumnElement, CursorResult, Select, exists, func, or_, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from app.contexts.qa.domain.errors import (
     QuestionClosedError,
 )
 from app.contexts.qa.domain.question import Question, QuestionStatus
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.domain.value_objects import Body, Title
 from app.contexts.qa.domain.vote import VoteTarget
@@ -23,7 +23,7 @@ from app.contexts.qa.infrastructure.models import (
     TagModel,
     VoteModel,
 )
-from app.contexts.qa.infrastructure.sql_expressions import net_votes_expr
+from app.contexts.qa.infrastructure.sql_expressions import escape_like, net_votes_expr
 
 
 def _question_net_votes() -> ColumnElement[int]:
@@ -37,6 +37,61 @@ def _question_net_votes() -> ColumnElement[int]:
         .correlate(QuestionModel)
         .scalar_subquery()
     )
+
+
+def _rebuild_question(model: QuestionModel, tags: list[Tag]) -> Question:
+    """行 → 聚合重建（get_by_id / list_paginated / list_related 共用单一路径）。"""
+    return Question(
+        id=model.id,
+        title=Title(model.title),
+        body=Body(model.body),
+        author_id=model.author_id,
+        created_at=model.created_at,
+        accepted_answer_id=model.accepted_answer_id,
+        status=QuestionStatus(model.status),
+        tags=tags,
+    )
+
+
+def _apply_filters(
+    stmt: Select[Any], filters: QuestionFilter | None
+) -> Select[Any]:
+    """套用 F01 筛选谓词（COUNT 与当前页共用同一份条件，保证 total 同口径）。
+
+    多标签为 AND：去重后的每个 key 一个独立 EXISTS；同一 key 重复传参只算一次。
+    """
+    if filters is None:
+        return stmt
+    conditions: list[ColumnElement[bool]] = []
+    if filters.status is not None:
+        conditions.append(QuestionModel.status == filters.status.value)
+    if filters.created_from is not None:
+        conditions.append(QuestionModel.created_at >= filters.created_from)
+    if filters.created_to is not None:
+        conditions.append(QuestionModel.created_at <= filters.created_to)
+    if filters.q is not None:
+        # F02：标题 + 正文单条件 OR——同一行双命中仍只返回一次，不需要 DISTINCT；
+        # 通配符经 escape_like 字面转义，escape 参数与转义符成对（"\\" 即单个反斜杠）
+        term = f"%{escape_like(filters.q)}%"
+        conditions.append(
+            or_(
+                QuestionModel.title.ilike(term, escape="\\"),
+                QuestionModel.body.ilike(term, escape="\\"),
+            )
+        )
+    for key in filters.tag_keys:
+        conditions.append(
+            exists(
+                select(1)
+                .select_from(QuestionTagModel)
+                .join(TagModel, TagModel.id == QuestionTagModel.tag_id)
+                .where(
+                    QuestionTagModel.question_id == QuestionModel.id,
+                    TagModel.key == key,
+                )
+            )
+        )
+    return stmt.where(*conditions)
 
 
 class SqlAlchemyQuestionRepository:
@@ -133,30 +188,73 @@ class SqlAlchemyQuestionRepository:
             tags.sort(key=lambda t: t.value)
         return result
 
-    async def get_by_id(self, question_id: UUID) -> Question | None:
+    async def get_by_id(
+        self, question_id: UUID, *, for_update: bool = False
+    ) -> Question | None:
         stmt = select(QuestionModel).where(QuestionModel.id == question_id)
+        if for_update:
+            # 写路径（悬赏/关闭/采纳）行锁串行化；populate_existing 避免读到同会话旧快照
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         model = (await self._session.execute(stmt)).scalar_one_or_none()
         if model is None:
             return None
         # 重建聚合：历史事件不从库回放（与 identity _to_domain 同模式）
         tags_map = await self._tags_for([question_id])
-        return Question(
-            id=model.id,
-            title=Title(model.title),
-            body=Body(model.body),
-            author_id=model.author_id,
-            created_at=model.created_at,
-            accepted_answer_id=model.accepted_answer_id,
-            status=QuestionStatus(model.status),
-            tags=tags_map[question_id],
+        return _rebuild_question(model, tags_map[question_id])
+
+    async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
+        """F03：标签共现相关推荐（单条聚合 SQL + 一次批量标签装配，无 N+1）。
+
+        先取种子题标签键集；无标签直接短路返回空。主查询按重合数聚合，
+        排序 tiebreak 全序：重合数 → 净票 → created_at → id（D3：不过滤关闭态）。
+        """
+        seed_keys = (
+            (
+                await self._session.execute(
+                    select(TagModel.key)
+                    .join(QuestionTagModel, QuestionTagModel.tag_id == TagModel.id)
+                    .where(QuestionTagModel.question_id == question_id)
+                )
+            )
+            .scalars()
+            .all()
         )
+        if not seed_keys:
+            return []
+        overlap = func.count(func.distinct(TagModel.key))
+        stmt = (
+            select(QuestionModel)
+            .join(QuestionTagModel, QuestionTagModel.question_id == QuestionModel.id)
+            .join(TagModel, TagModel.id == QuestionTagModel.tag_id)
+            .where(
+                TagModel.key.in_(seed_keys),
+                QuestionModel.id != question_id,
+            )
+            .group_by(QuestionModel.id)
+            .order_by(
+                overlap.desc(),
+                _question_net_votes().desc(),
+                QuestionModel.created_at.desc(),
+                QuestionModel.id.desc(),
+            )
+            .limit(limit)
+        )
+        models = (await self._session.execute(stmt)).scalars().all()
+        tags_map = await self._tags_for([model.id for model in models])
+        return [_rebuild_question(model, tags_map[model.id]) for model in models]
 
     async def list_paginated(
-        self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
+        self,
+        page: int,
+        page_size: int,
+        sort: QuestionSort = QuestionSort.LATEST,
+        filters: QuestionFilter | None = None,
     ) -> tuple[list[Question], int]:
-        # 总条数与当前页同一事务快照，保证分页元数据一致
+        # 总条数与当前页同一事务快照 + 同一筛选谓词，保证分页元数据一致
         total = (
-            await self._session.execute(select(func.count()).select_from(QuestionModel))
+            await self._session.execute(
+                _apply_filters(select(func.count()).select_from(QuestionModel), filters)
+            )
         ).scalar_one()
         if sort is QuestionSort.VOTES:
             # v3 裁定 #4：净票数高→低；created_at/id 作确定性 tiebreaker 保证跨页稳定
@@ -171,7 +269,7 @@ class SqlAlchemyQuestionRepository:
             # id 作 tiebreaker 保证确定性全序，跨页不重复/不漏项
             order_by = (QuestionModel.created_at.desc(), QuestionModel.id.desc())
         stmt = (
-            select(QuestionModel)
+            _apply_filters(select(QuestionModel), filters)
             .order_by(*order_by)
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -179,18 +277,6 @@ class SqlAlchemyQuestionRepository:
         models = (await self._session.execute(stmt)).scalars().all()
         tags_map = await self._tags_for([model.id for model in models])
         return (
-            [
-                Question(
-                    id=model.id,
-                    title=Title(model.title),
-                    body=Body(model.body),
-                    author_id=model.author_id,
-                    created_at=model.created_at,
-                    accepted_answer_id=model.accepted_answer_id,
-                    status=QuestionStatus(model.status),
-                    tags=tags_map[model.id],
-                )
-                for model in models
-            ],
+            [_rebuild_question(model, tags_map[model.id]) for model in models],
             total,
         )

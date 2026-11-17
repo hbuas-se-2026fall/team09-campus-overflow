@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.contexts.reputation.domain.leaderboard import LeaderboardRow
 from app.contexts.reputation.domain.ledger import LedgerEntry, LedgerSource
 from app.contexts.reputation.infrastructure.models import ReputationLedgerModel
 
@@ -75,4 +77,30 @@ class SqlAlchemyReputationLedgerRepository:
                 occurred_at=row.occurred_at,
             )
             for row in rows.scalars()
+        ]
+
+    async def list_top(
+        self, start: datetime, end: datetime, limit: int
+    ) -> list[LeaderboardRow]:
+        """F05：期间 [start, end) 按用户汇总 delta，RANK() 同分同名次（D9）。"""
+        score = func.coalesce(func.sum(ReputationLedgerModel.delta), 0)
+        rank = func.rank().over(order_by=score.desc())
+        stmt = (
+            select(
+                ReputationLedgerModel.user_id,
+                score.label("score"),
+                rank.label("rank"),
+            )
+            .where(
+                ReputationLedgerModel.occurred_at >= start,
+                ReputationLedgerModel.occurred_at < end,
+            )
+            .group_by(ReputationLedgerModel.user_id)
+            .order_by(score.desc(), ReputationLedgerModel.user_id.asc())
+            .limit(limit)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [
+            LeaderboardRow(user_id=row[0], score=int(row[1]), rank=int(row[2]))
+            for row in rows
         ]

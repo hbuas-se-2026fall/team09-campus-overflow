@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -19,10 +20,17 @@ from app.contexts.qa.application.commands import (
 from app.contexts.qa.application.edit_question_use_case import EditQuestionUseCase
 from app.contexts.qa.application.get_question_use_case import GetQuestionUseCase
 from app.contexts.qa.application.list_questions_use_case import ListQuestionsUseCase
-from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQuery
+from app.contexts.qa.application.list_related_questions_use_case import (
+    ListRelatedQuestionsUseCase,
+)
+from app.contexts.qa.application.queries import (
+    GetQuestionQuery,
+    ListQuestionsQuery,
+    ListRelatedQuestionsQuery,
+)
 from app.contexts.qa.domain.comment import CommentTarget
-from app.contexts.qa.domain.question import Question
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.question import Question, QuestionStatus
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.vote import VoteTarget
 from app.contexts.qa.interfaces.api._common import (
     comment_response,
@@ -31,7 +39,9 @@ from app.contexts.qa.interfaces.api._common import (
 )
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
+    BountyServiceDep,
     CommentRepo,
+    NotificationWriterDep,
     QuestionRepo,
     TagCatalogRepo,
     VoteRepo,
@@ -81,7 +91,7 @@ async def ask_question(
 @router.get(
     "",
     response_model=QuestionListResponse,
-    summary="问题列表（访客可用，默认按发布时间新→旧，可按净票数排序）",
+    summary="问题列表（访客可用；可按关键词/标签/状态/创建时间筛选，默认按发布时间新→旧）",
 )
 async def list_questions(
     questions: QuestionRepo,
@@ -91,11 +101,45 @@ async def list_questions(
         default=QuestionSort.LATEST,
         description="排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）",
     ),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "按标题与正文模糊搜索，大小写不敏感（F02）；空串/纯空白等价于不传，"
+            "至多 100 字（超限 422），% _ \\ 按字面匹配"
+        ),
+    ),
+    tag: list[str] | None = Query(
+        default=None,
+        description=(
+            "按标签筛选，可重复传参（?tag=a&tag=b）；多个标签为 AND，大小写不敏感；"
+            "去重后至多 5 个（与每题标签上限一致，超限 422）"
+        ),
+    ),
+    status_filter: QuestionStatus | None = Query(
+        default=None,
+        alias="status",
+        description="按状态筛选：open / closed；不传=全部（F01）",
+    ),
+    created_from: datetime | None = Query(
+        default=None, description="创建时间下界（闭区间，须带时区；F01）"
+    ),
+    created_to: datetime | None = Query(
+        default=None, description="创建时间上界（闭区间，须带时区；F01）"
+    ),
 ) -> QuestionListResponse:
-    # sort 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07 迭代 2 收紧）
+    # sort/status 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07）
+    # 逆序/无时区/tag 非法字符/q 超长或控制字符由 QuestionFilter.__post_init__
+    # 抛 DomainValidationError，经全局映射落 422；路由不新增 try/except（C2 收口口径）
+    filters = QuestionFilter(
+        tags=tuple(tag or ()),
+        status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
+        q=q,
+    )
     use_case = ListQuestionsUseCase(questions)
     result = await use_case.execute(
-        ListQuestionsQuery(page=page, page_size=page_size, sort=sort)
+        ListQuestionsQuery(page=page, page_size=page_size, sort=sort, filters=filters)
     )
     return QuestionListResponse(
         items=[
@@ -159,6 +203,36 @@ async def get_question(
     )
 
 
+@router.get(
+    "/{question_id}/related",
+    response_model=list[QuestionListItem],
+    summary="相关问题推荐（按标签共现；访客可用，D3 不过滤关闭态）",
+)
+async def list_related_questions(
+    question_id: UUID,
+    questions: QuestionRepo,
+    limit: int = Query(default=5, ge=1, le=10, description="返回条数，1~10"),
+) -> list[QuestionListItem]:
+    use_case = ListRelatedQuestionsUseCase(questions)
+    items = await use_case.execute(
+        ListRelatedQuestionsQuery(question_id=question_id, limit=limit)
+    )
+    if items is None:
+        # 与详情同语义：不泄露内部信息
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
+    return [
+        QuestionListItem(
+            id=q.id,
+            title=q.title.value,
+            author_id=q.author_id,
+            created_at=q.created_at,
+            tags=[t.value for t in q.tags],
+            status=q.status,
+        )
+        for q in items
+    ]
+
+
 @router.patch(
     "/{question_id}",
     response_model=QuestionResponse,
@@ -204,8 +278,9 @@ async def close_question(
     question_id: UUID,
     user: CurrentUser,
     questions: QuestionRepo,
+    bounty_service: BountyServiceDep,
 ) -> Response:
-    use_case = CloseQuestionUseCase(questions)
+    use_case = CloseQuestionUseCase(questions, bounty_service)
     await use_case.execute(CloseQuestionCommand(question_id=question_id, actor_id=user.id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -222,8 +297,9 @@ async def post_answer(
     user: CurrentUser,
     questions: QuestionRepo,
     answers: AnswerRepo,
+    notification_writer: NotificationWriterDep,
 ) -> AnswerResponse:
-    use_case = PostAnswerUseCase(questions, answers)
+    use_case = PostAnswerUseCase(questions, answers, notification_writer)
     answer = await use_case.execute(
         PostAnswerCommand(
             question_id=question_id,
@@ -309,7 +385,15 @@ async def comment_question(
     questions: QuestionRepo,
     answers: AnswerRepo,
     comments: CommentRepo,
+    notification_writer: NotificationWriterDep,
 ) -> CommentResponse:
     return await create_comment_on_target(
-        CommentTarget.QUESTION, question_id, payload, user.id, questions, answers, comments
+        CommentTarget.QUESTION,
+        question_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        comments,
+        notification_writer,
     )

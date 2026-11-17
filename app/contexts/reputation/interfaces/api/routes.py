@@ -1,20 +1,27 @@
-"""reputation 接口路由（分支 4，US-REP02）：查询本人声誉总值与流水。"""
+"""reputation 接口路由：本人声誉查询（US-REP02）+ 公开排行榜（F05）。"""
 
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.contexts.identity.interfaces.api.deps import CurrentUser
+from app.contexts.reputation.application.get_leaderboard_use_case import (
+    GetLeaderboardUseCase,
+)
 from app.contexts.reputation.application.get_reputation_use_case import GetReputationUseCase
+from app.contexts.reputation.domain.leaderboard import LeaderboardPeriod
 from app.contexts.reputation.interfaces.api.deps import ReputationLedgerRepo
 from app.contexts.reputation.interfaces.api.schemas import (
+    LeaderboardEntryResponse,
+    LeaderboardResponse,
     ReputationEntryResponse,
     ReputationResponse,
 )
 
 reputation_router = APIRouter(prefix="/api/v1/users", tags=["reputation"])
+leaderboard_router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
 
 @reputation_router.get(
@@ -48,6 +55,33 @@ async def get_reputation(
                 delta=e.delta,
                 reason=e.reason,
                 occurred_at=e.occurred_at,
+            )
+            for e in view.entries
+        ],
+    )
+
+
+@leaderboard_router.get(
+    "",
+    response_model=LeaderboardResponse,
+    summary="排行榜：周/月/学期 Top N（公开；净得分，同分同名次）",
+)
+async def get_leaderboard(
+    ledger: ReputationLedgerRepo,
+    period: LeaderboardPeriod = Query(
+        default=LeaderboardPeriod.WEEK,
+        description="周期：week=本周；month=本月；semester=当前学期（D10 学期待口径）",
+    ),
+    limit: int = Query(default=10, ge=1, le=100, description="返回条数，1~100"),
+) -> LeaderboardResponse:
+    view = await GetLeaderboardUseCase(ledger).execute(period, limit)
+    return LeaderboardResponse(
+        period=view.period,
+        period_start=view.period_start,
+        period_end=view.period_end,
+        entries=[
+            LeaderboardEntryResponse(
+                user_id=e.user_id, score=e.score, rank=e.rank
             )
             for e in view.entries
         ],

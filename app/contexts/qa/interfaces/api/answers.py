@@ -12,7 +12,13 @@ from app.contexts.qa.application.commands import AcceptAnswerCommand
 from app.contexts.qa.domain.answer import AnswerAccepted
 from app.contexts.qa.domain.comment import CommentTarget
 from app.contexts.qa.interfaces.api._common import create_comment_on_target
-from app.contexts.qa.interfaces.api.deps import AnswerRepo, CommentRepo, QuestionRepo
+from app.contexts.qa.interfaces.api.deps import (
+    AnswerRepo,
+    BountyServiceDep,
+    CommentRepo,
+    NotificationWriterDep,
+    QuestionRepo,
+)
 from app.contexts.qa.interfaces.api.schemas import CommentRequest, CommentResponse
 from app.contexts.reputation.application.ports import AcceptEventPayload
 from app.contexts.reputation.interfaces.publisher import EventPublisherDep
@@ -33,9 +39,17 @@ async def comment_answer(
     questions: QuestionRepo,
     answers: AnswerRepo,
     comments: CommentRepo,
+    notification_writer: NotificationWriterDep,
 ) -> CommentResponse:
     return await create_comment_on_target(
-        CommentTarget.ANSWER, answer_id, payload, user.id, questions, answers, comments
+        CommentTarget.ANSWER,
+        answer_id,
+        payload,
+        user.id,
+        questions,
+        answers,
+        comments,
+        notification_writer,
     )
 
 
@@ -50,8 +64,12 @@ async def accept_answer(
     questions: QuestionRepo,
     answers: AnswerRepo,
     publisher: EventPublisherDep,
+    notification_writer: NotificationWriterDep,
+    bounty_service: BountyServiceDep,
 ) -> Response:
-    use_case = AcceptAnswerUseCase(questions, answers)
+    use_case = AcceptAnswerUseCase(
+        questions, answers, notification_writer, bounty_service
+    )
     result = await use_case.execute(AcceptAnswerCommand(answer_id=answer_id, actor_id=user.id))
     publisher.publish_accept(_accept_payload(result.event))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
