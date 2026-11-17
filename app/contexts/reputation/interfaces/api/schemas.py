@@ -1,4 +1,4 @@
-"""reputation 接口 schema：白名单响应模型（US-REP02）。"""
+"""reputation 接口 schema：白名单响应模型（US-REP02 + F05）。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+
+from app.contexts.reputation.domain.leaderboard import LeaderboardPeriod
 
 
 class ReputationEntryResponse(BaseModel):
@@ -29,3 +31,24 @@ class ReputationResponse(BaseModel):
     user_id: UUID
     total: int
     entries: list[ReputationEntryResponse]
+
+
+class LeaderboardEntryResponse(BaseModel):
+    """榜单行：用户、期间净得分、名次（同分同名次）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    score: int
+    rank: int
+
+
+class LeaderboardResponse(BaseModel):
+    """GET /api/v1/leaderboard 响应（F05，公开）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    period: LeaderboardPeriod
+    period_start: datetime
+    period_end: datetime
+    entries: list[LeaderboardEntryResponse]

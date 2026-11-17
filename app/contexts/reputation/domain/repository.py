@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.contexts.reputation.domain.leaderboard import LeaderboardRow
 from app.contexts.reputation.domain.ledger import LedgerEntry
 
 
@@ -25,4 +27,13 @@ class ReputationLedgerRepository(Protocol):
 
     async def entries_desc(self, user_id: UUID) -> list[LedgerEntry]:
         """流水按 occurred_at 倒序（Gherkin 功能域 11 场景 3）。"""
+        ...
+
+    async def list_top(
+        self, start: datetime, end: datetime, limit: int
+    ) -> list[LeaderboardRow]:
+        """排行榜（F05）：[start, end) 内按用户汇总净得分，降序取前 limit。
+
+        名次为 competition ranking（同分同名次，D9）；净得分含负（D8）。
+        """
         ...
