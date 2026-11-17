@@ -6,13 +6,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from app.config.settings import get_settings
 from app.contexts.identity.interfaces.api.deps import CurrentUser
 from app.contexts.reputation.application.get_leaderboard_use_case import (
     GetLeaderboardUseCase,
 )
 from app.contexts.reputation.application.get_reputation_use_case import GetReputationUseCase
 from app.contexts.reputation.domain.leaderboard import LeaderboardPeriod
-from app.contexts.reputation.interfaces.api.deps import ReputationLedgerRepo
+from app.contexts.reputation.interfaces.api.deps import (
+    LeaderboardCacheDep,
+    ReputationLedgerRepo,
+)
 from app.contexts.reputation.interfaces.api.schemas import (
     LeaderboardEntryResponse,
     LeaderboardResponse,
@@ -68,13 +72,17 @@ async def get_reputation(
 )
 async def get_leaderboard(
     ledger: ReputationLedgerRepo,
+    cache: LeaderboardCacheDep,
     period: LeaderboardPeriod = Query(
         default=LeaderboardPeriod.WEEK,
         description="周期：week=本周；month=本月；semester=当前学期（D10 学期待口径）",
     ),
     limit: int = Query(default=10, ge=1, le=100, description="返回条数，1~100"),
 ) -> LeaderboardResponse:
-    view = await GetLeaderboardUseCase(ledger).execute(period, limit)
+    ttl = get_settings().leaderboard_cache_ttl_seconds
+    view = await GetLeaderboardUseCase(
+        ledger, cache=cache, cache_ttl_seconds=ttl
+    ).execute(period, limit)
     return LeaderboardResponse(
         period=view.period,
         period_start=view.period_start,

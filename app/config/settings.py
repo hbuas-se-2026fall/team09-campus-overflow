@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     # JWT 签名密钥：默认仅开发用，生产必须从环境变量覆盖（.env 不入库）
     jwt_secret: str = "dev-secret-change-me-in-production"
+    # F08 排行榜热榜缓存 TTL（秒）；<=0 时跳过缓存直查库
+    leaderboard_cache_ttl_seconds: int = 60
 
     model_config = SettingsConfigDict(
         env_file=".env",

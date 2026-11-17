@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from app.contexts.reputation.domain.leaderboard import LeaderboardPeriod, LeaderboardRow
+
 
 @dataclass(frozen=True, slots=True)
 class VoteEventPayload:
@@ -47,3 +49,28 @@ class EventPublisher(Protocol):
     def publish_accept(self, payload: AcceptEventPayload) -> None:
         """投递采纳事件（reputation.apply_accept_bonus）。"""
         ...
+
+
+class LeaderboardCache(Protocol):
+    """排行榜热榜缓存出站端口（F08）：Key 格式与序列化留在 infrastructure。
+
+    约定：
+    - get() 返回 None 表示未命中或缓存降级不可用；
+    - get() 返回 [] 表示已缓存的空榜（命中，不回源）。
+    """
+
+    async def get(
+        self,
+        period: LeaderboardPeriod,
+        limit: int,
+        start: datetime,
+    ) -> list[LeaderboardRow] | None: ...
+
+    async def set(
+        self,
+        period: LeaderboardPeriod,
+        limit: int,
+        start: datetime,
+        rows: list[LeaderboardRow],
+        ttl_seconds: int,
+    ) -> None: ...

@@ -78,6 +78,7 @@
 - 得分 = 期间 `SUM(delta)` **净得分**（含负）；名次为 **同分同名次**（1,1,3），同分按 `user_id` 升序稳定
 - `limit` 1~100，默认 10；非法 `period`/越界 `limit` → 422
 - 响应：`{period, period_start, period_end, entries:[{user_id, score, rank}]}`；展示名待 F11
+- **热榜缓存（F08，2026-11-17）**：服务端可能命中 Redis 短时缓存，**最大陈旧 = TTL 60s + 声誉 Celery 落账延迟（亚秒~约 1.3s）**；投票/采纳后 60s 内榜单可能仍是旧快照，前端勿假设立即可见。缓存故障自动降级直查 PG，仍返回 200，不会因 Redis 不可用变成 503。
 
 ## 四点九、用户徽章（`GET /api/v1/users/{id}/badges`，F06）
 
