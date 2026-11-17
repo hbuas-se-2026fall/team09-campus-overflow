@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.contexts.qa.application.bounty_service import BountyService
 from app.contexts.qa.application.commands import CloseQuestionCommand
 from app.contexts.qa.domain.errors import NotQuestionAuthorError, QuestionNotFoundError
 from app.contexts.qa.domain.question import Question
@@ -13,17 +14,27 @@ class CloseQuestionUseCase:
 
     关闭为终态（2026-09-29 裁定全冻结，无重开故事）：此后编辑/新增回答/投票/
     评论/采纳一律 409；成功后 Question.close() 追加 QuestionClosed 事件（无订阅者照发）。
+    F07/D13：关闭且未采纳时同事务全额退款进行中的悬赏。
     """
 
-    def __init__(self, question_repository: QuestionRepository) -> None:
+    def __init__(
+        self,
+        question_repository: QuestionRepository,
+        bounty_service: BountyService | None = None,
+    ) -> None:
         self._question_repository = question_repository
+        self._bounty_service = bounty_service
 
     async def execute(self, command: CloseQuestionCommand) -> Question:
-        question = await self._question_repository.get_by_id(command.question_id)
+        question = await self._question_repository.get_by_id(
+            command.question_id, for_update=True
+        )
         if question is None:
             raise QuestionNotFoundError("问题不存在")
         if question.author_id != command.actor_id:
             raise NotQuestionAuthorError("仅提问者可关闭问题")
         question.close()
         await self._question_repository.update(question)
+        if self._bounty_service is not None:
+            await self._bounty_service.refund_on_close(question.id)
         return question

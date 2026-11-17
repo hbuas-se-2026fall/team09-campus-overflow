@@ -17,6 +17,7 @@ from app.contexts.qa.domain.vote import VoteCast, VoteDirection, VoteTarget
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
     CommentRepo,
+    NotificationWriterDep,
     QuestionRepo,
     VoteRepo,
 )
@@ -78,9 +79,10 @@ async def create_comment_on_target(
     questions: QuestionRepo,
     answers: AnswerRepo,
     comments: CommentRepo,
+    notification_writer: NotificationWriterDep,
 ) -> CommentResponse:
     """题评/答评端点共用：成功 201 + 白名单；目标不存在 404；正文兜底 422。"""
-    use_case = CreateCommentUseCase(questions, answers, comments)
+    use_case = CreateCommentUseCase(questions, answers, comments, notification_writer)
     comment = await use_case.execute(
         CreateCommentCommand(
             target_type=target_type,

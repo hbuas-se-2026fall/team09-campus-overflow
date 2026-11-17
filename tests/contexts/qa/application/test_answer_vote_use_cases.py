@@ -31,8 +31,13 @@ class FakeQuestionRepository:
     async def add(self, question: Question) -> None:
         self.added.append(question)
 
-    async def get_by_id(self, question_id: UUID) -> Question | None:
+    async def get_by_id(
+        self, question_id: UUID, *, for_update: bool = False
+    ) -> Question | None:
         return next((q for q in self.added if q.id == question_id), None)
+
+    async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
+        return []
 
     async def list_paginated(
         self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST

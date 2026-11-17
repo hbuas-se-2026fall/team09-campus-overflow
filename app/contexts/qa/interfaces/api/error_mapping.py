@@ -24,6 +24,8 @@ QA_ERROR_STATUS: dict[type[Exception], int] = {
     qa_errors.AnswerAlreadyAcceptedError: status.HTTP_409_CONFLICT,
     qa_errors.QuestionAlreadyClosedError: status.HTTP_409_CONFLICT,
     qa_errors.QuestionClosedError: status.HTTP_409_CONFLICT,
+    qa_errors.InsufficientPointsError: status.HTTP_409_CONFLICT,
+    qa_errors.BountyAlreadyActiveError: status.HTTP_409_CONFLICT,
 }
 
 

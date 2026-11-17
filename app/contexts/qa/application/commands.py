@@ -80,3 +80,12 @@ class EditQuestionCommand:
     actor_id: UUID
     title: str | None
     body: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBountyCommand:
+    """发起教师悬赏命令（F07）。teacher_id 来自认证依赖，绝不来自请求体。"""
+
+    question_id: UUID
+    teacher_id: UUID
+    amount: int

@@ -597,3 +597,190 @@ async def test_list_filter_too_many_distinct_tags_returns_422(
     ]
     ok = await client.get("/api/v1/questions", params=dedup_ok)
     assert ok.status_code == 200, ok.text
+
+
+# ============================================================
+# F02 全文搜索（ILIKE）：标题/正文命中、大小写、通配符字面、组合、422
+# ============================================================
+
+
+async def _create_question(
+    client: httpx.AsyncClient, token: str, *, title: str, body: str
+) -> str:
+    resp = await client.post(
+        "/api/v1/questions",
+        json=_question_payload(title=title, body=body),
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def test_list_search_matches_title_and_body(
+    client: httpx.AsyncClient,
+) -> None:
+    """F02：标题命中、正文命中；无关问题不命中；无命中返回 200 + 空列表。"""
+    token, _ = await _register_and_login(client)
+    word = f"F02{uuid.uuid4().hex[:8]}"
+    title_hit = await _create_question(
+        client, token, title=f"{word} 标题命中", body="普通正文"
+    )
+    body_hit = await _create_question(
+        client, token, title="普通标题", body=f"正文包含 {word}"
+    )
+    unrelated = await _create_question(
+        client, token, title="无关标题", body="无关正文"
+    )
+
+    resp = await client.get("/api/v1/questions", params={"q": word, "page_size": 100})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    ids = {item["id"] for item in data["items"]}
+    assert {title_hit, body_hit} <= ids
+    assert unrelated not in ids
+    assert data["total"] == len(data["items"])
+
+    miss = await client.get(
+        "/api/v1/questions", params={"q": f"{word}不存在", "page_size": 100}
+    )
+    assert miss.status_code == 200, miss.text
+    assert miss.json()["items"] == []
+    assert miss.json()["total"] == 0
+
+
+async def test_list_search_case_insensitive_and_blank_equals_absent(
+    client: httpx.AsyncClient,
+) -> None:
+    """F02：ILIKE 大小写不敏感；空串/纯空白等价于不传（total 与无参一致）。"""
+    token, _ = await _register_and_login(client)
+    word = f"F02{uuid.uuid4().hex[:8]}"
+    qid = await _create_question(
+        client, token, title=f"{word} SQLAlchemy 事务", body="正文"
+    )
+
+    hit = await client.get(
+        "/api/v1/questions",
+        params={"q": f"{word} sqlalchemy", "page_size": 100},
+    )
+    assert hit.status_code == 200, hit.text
+    assert qid in {item["id"] for item in hit.json()["items"]}
+
+    baseline = await client.get("/api/v1/questions", params={"page_size": 100})
+    blank = await client.get("/api/v1/questions", params={"q": "   ", "page_size": 100})
+    assert baseline.status_code == blank.status_code == 200
+    assert blank.json()["total"] == baseline.json()["total"]
+
+
+async def test_list_search_wildcards_are_literal(client: httpx.AsyncClient) -> None:
+    """F02：% 按字面匹配（端到端验证 escape_like 与 escape 参数成对）。"""
+    token, _ = await _register_and_login(client)
+    word = f"F02{uuid.uuid4().hex[:8]}"
+    hit = await _create_question(
+        client, token, title=f"{word} 100% 命中", body="正文"
+    )
+    await _create_question(client, token, title=f"{word} 100x 不应命中", body="正文")
+
+    resp = await client.get(
+        "/api/v1/questions", params={"q": f"{word} 100%", "page_size": 100}
+    )
+    assert resp.status_code == 200, resp.text
+    assert {item["id"] for item in resp.json()["items"]} == {hit}
+
+
+async def test_list_search_combines_with_tag_filter(client: httpx.AsyncClient) -> None:
+    """F02 与 F01 组合：q + tag 同时生效，total 与当前页同口径。"""
+    token, _ = await _register_and_login(client)
+    word = f"F02{uuid.uuid4().hex[:8]}"
+    react_id = await _create_question_with_tags(
+        client, token, title=f"{word} React 状态管理", tags=["React"]
+    )
+    pg_id = await _create_question_with_tags(
+        client, token, title=f"{word} PostgreSQL 索引", tags=["PostgreSQL"]
+    )
+
+    resp = await client.get(
+        "/api/v1/questions",
+        params=[("q", word), ("tag", "React"), ("page_size", "100")],
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    ids = {item["id"] for item in data["items"]}
+    assert react_id in ids
+    assert pg_id not in ids
+    assert data["total"] == len(data["items"])
+
+
+async def test_list_search_invalid_q_returns_422(client: httpx.AsyncClient) -> None:
+    """F02：超 100 字、含制表符 → 422，不回显原始输入。"""
+    cases = [{"q": "a" * 101}, {"q": "React\tHooks"}]
+    for params in cases:
+        resp = await client.get("/api/v1/questions", params=params)
+        assert resp.status_code == 422, (params, resp.text)
+        _assert_no_input_echo(resp)
+
+
+# ============================================================
+# F03 相关问题推荐：标签共现排序 / limit 边界 / 404 / 无标签空
+# ============================================================
+
+
+async def test_related_questions_ordered_by_tag_overlap(
+    client: httpx.AsyncClient,
+) -> None:
+    """200：标签重合数降序；自身不出现在推荐里。"""
+    token, _ = await _register_and_login(client)
+    base = f"F03{uuid.uuid4().hex[:8]}"
+    tag_a, tag_b = f"{base}React", f"{base}TypeScript"
+    source = await _create_question_with_tags(
+        client, token, title="相关问题种子：React 与 TypeScript", tags=[tag_a, tag_b]
+    )
+    full = await _create_question_with_tags(
+        client, token, title="两个标签都重合的候选", tags=[tag_a, tag_b]
+    )
+    half = await _create_question_with_tags(
+        client, token, title="仅一个标签重合的候选", tags=[tag_a]
+    )
+
+    resp = await client.get(f"/api/v1/questions/{source}/related")
+    assert resp.status_code == 200, resp.text
+    ids = [item["id"] for item in resp.json()]
+    assert ids == [full, half]
+    assert source not in ids
+
+
+async def test_related_questions_limit_bounds_return_422(
+    client: httpx.AsyncClient,
+) -> None:
+    """limit 边界：0 与 11 均 422（Query ge=1/le=10）。"""
+    token, _ = await _register_and_login(client)
+    source = await _create_question_with_tags(
+        client, token, title="相关问题 limit 边界种子", tags=[]
+    )
+    for limit in (0, 11):
+        resp = await client.get(
+            f"/api/v1/questions/{source}/related", params={"limit": limit}
+        )
+        assert resp.status_code == 422, (limit, resp.text)
+
+
+async def test_related_questions_missing_returns_404(
+    client: httpx.AsyncClient,
+) -> None:
+    resp = await client.get(f"/api/v1/questions/{uuid.uuid4()}/related")
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "问题不存在"
+    assert "traceback" not in resp.text.lower()
+
+
+async def test_related_questions_without_tags_returns_empty(
+    client: httpx.AsyncClient,
+) -> None:
+    """无标签问题返回 200 空数组（非 404/非错误）。"""
+    token, _ = await _register_and_login(client)
+    source = await _create_question_with_tags(
+        client, token, title="无标签问题不应有相关推荐", tags=[]
+    )
+
+    resp = await client.get(f"/api/v1/questions/{source}/related")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []

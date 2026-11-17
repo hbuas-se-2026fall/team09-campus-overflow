@@ -37,3 +37,11 @@ class QuestionClosedError(QADomainError):
 
     关闭为终态（2026-09-29 裁定全冻结）；消息按调用点语义具体化。
     """
+
+
+class InsufficientPointsError(QADomainError):
+    """教师积分不足，无法发起悬赏（F07，路由层转 409）。"""
+
+
+class BountyAlreadyActiveError(QADomainError):
+    """同一问题已有进行中的悬赏（F07，D13：部分唯一索引兜底，路由层转 409）。"""

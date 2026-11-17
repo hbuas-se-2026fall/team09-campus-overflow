@@ -23,3 +23,11 @@ class GetQuestionQuery:
     """详情查询参数。"""
 
     question_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ListRelatedQuestionsQuery:
+    """相关问题查询（F03）：limit 边界（1~10）由路由 Query 校验后传入。"""
+
+    question_id: UUID
+    limit: int = 5
