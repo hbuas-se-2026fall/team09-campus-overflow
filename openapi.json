@@ -237,7 +237,7 @@
         "tags": [
           "questions"
         ],
-        "summary": "问题列表（访客可用；可按标签/状态/创建时间筛选，默认按发布时间新→旧）",
+        "summary": "问题列表（访客可用；可按关键词/标签/状态/创建时间筛选，默认按发布时间新→旧）",
         "operationId": "list_questions_api_v1_questions_get",
         "parameters": [
           {
@@ -277,6 +277,24 @@
               "default": "latest"
             },
             "description": "排序：latest=最新（默认）；votes=净票数高→低（US-Q02 迭代 2）"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按标题与正文模糊搜索，大小写不敏感（F02）；空串/纯空白等价于不传，至多 100 字（超限 422），% _ \\ 按字面匹配",
+              "title": "Q"
+            },
+            "description": "按标题与正文模糊搜索，大小写不敏感（F02）；空串/纯空白等价于不传，至多 100 字（超限 422），% _ \\ 按字面匹配"
           },
           {
             "name": "tag",
@@ -462,6 +480,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QuestionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{question_id}/related": {
+      "get": {
+        "tags": [
+          "questions"
+        ],
+        "summary": "相关问题推荐（按标签共现；访客可用，D3 不过滤关闭态）",
+        "operationId": "list_related_questions_api_v1_questions__question_id__related_get",
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 1,
+              "description": "返回条数，1~10",
+              "default": 5,
+              "title": "Limit"
+            },
+            "description": "返回条数，1~10"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuestionListItem"
+                  },
+                  "title": "Response List Related Questions Api V1 Questions  Question Id  Related Get"
                 }
               }
             }
@@ -868,6 +947,182 @@
         }
       }
     },
+    "/api/v1/users/{user_id}/badges": {
+      "get": {
+        "tags": [
+          "badges"
+        ],
+        "summary": "用户徽章（公开；F06：回答数/采纳率/历史最长连续活跃）",
+        "operationId": "get_user_badges_api_v1_users__user_id__badges_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBadgesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/questions/{question_id}/bounty": {
+      "post": {
+        "tags": [
+          "bounty"
+        ],
+        "summary": "发起教师悬赏（仅教师；F07；余额不足/已有悬赏 409）",
+        "operationId": "create_bounty_api_v1_questions__question_id__bounty_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BountyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BountyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "bounty"
+        ],
+        "summary": "查询进行中的教师悬赏（公开；无悬赏返回 null）",
+        "operationId": "get_bounty_api_v1_questions__question_id__bounty_get",
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BountyResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Bounty Api V1 Questions  Question Id  Bounty Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/points": {
+      "get": {
+        "tags": [
+          "points"
+        ],
+        "summary": "查询本人可消费积分余额与流水（需登录；教师首次访问惰性发放初始额度）",
+        "operationId": "get_my_points_api_v1_users_me_points_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPointsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/{user_id}/reputation": {
       "get": {
         "tags": [
@@ -915,6 +1170,234 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/leaderboard": {
+      "get": {
+        "tags": [
+          "leaderboard"
+        ],
+        "summary": "排行榜：周/月/学期 Top N（公开；净得分，同分同名次）",
+        "operationId": "get_leaderboard_api_v1_leaderboard_get",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LeaderboardPeriod",
+              "description": "周期：week=本周；month=本月；semester=当前学期（D10 学期待口径）",
+              "default": "week"
+            },
+            "description": "周期：week=本周；month=本月；semester=当前学期（D10 学期待口径）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回条数，1~100",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "返回条数，1~100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "通知列表（仅本人；分页 + 未读筛选）",
+        "operationId": "list_notifications_api_v1_notifications_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 起",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 起"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，上限 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，上限 100"
+          },
+          {
+            "name": "unread_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "只看未读",
+              "default": false,
+              "title": "Unread Only"
+            },
+            "description": "只看未读"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/unread-count": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "未读通知数（仅本人）",
+        "operationId": "unread_count_api_v1_notifications_unread_count_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "单条标记已读（仅本人；幂等 204，非本人/不存在 404）",
+        "operationId": "mark_notification_read_api_v1_notifications__notification_id__read_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications/read-all": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "全部标记已读（仅本人；返回本次更新条数，幂等）",
+        "operationId": "mark_all_notifications_read_api_v1_notifications_read_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadAllResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/health": {
@@ -1026,6 +1509,110 @@
         "title": "AskQuestionRequest",
         "description": "POST /api/v1/questions 请求体。\n\nstr_strip_whitespace 在长度约束之前生效：纯空白标题/正文 strip 后为空 → 422。\ntags 可选（迭代 4，Q03）：schema 只拦原始数量滥用（≤20 松上限）与类型/结构错误\n（数组形 422）；去重后 ≤5、白名单字符等语义校验在领域层（字符串形 422），\n两种 422 形态见 api-contract-notes。"
       },
+      "BadgeResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "tier": {
+            "type": "string",
+            "title": "Tier"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "kind",
+          "tier",
+          "threshold"
+        ],
+        "title": "BadgeResponse",
+        "description": "单枚徽章（F06）：稳定 code + 类别/等级/阈值。"
+      },
+      "BountyCreateRequest": {
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "title": "BountyCreateRequest",
+        "description": "发起悬赏请求体（F07）：金额 1~1,000,000。"
+      },
+      "BountyResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Question Id"
+          },
+          "teacher_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Teacher Id"
+          },
+          "amount": {
+            "type": "integer",
+            "title": "Amount"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "question_id",
+          "teacher_id",
+          "amount",
+          "status",
+          "created_at",
+          "settled_at"
+        ],
+        "title": "BountyResponse",
+        "description": "悬赏白名单响应（F07）。"
+      },
       "CommentRequest": {
         "properties": {
           "body": {
@@ -1122,6 +1709,76 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "LeaderboardEntryResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "score": {
+            "type": "integer",
+            "title": "Score"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "score",
+          "rank"
+        ],
+        "title": "LeaderboardEntryResponse",
+        "description": "榜单行：用户、期间净得分、名次（同分同名次）。"
+      },
+      "LeaderboardPeriod": {
+        "type": "string",
+        "enum": [
+          "week",
+          "month",
+          "semester"
+        ],
+        "title": "LeaderboardPeriod",
+        "description": "榜单周期（2.3.3：周/月/学期）。"
+      },
+      "LeaderboardResponse": {
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/LeaderboardPeriod"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period End"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderboardEntryResponse"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "period",
+          "period_start",
+          "period_end",
+          "entries"
+        ],
+        "title": "LeaderboardResponse",
+        "description": "GET /api/v1/leaderboard 响应（F05，公开）。"
+      },
       "LoginRequest": {
         "properties": {
           "identifier": {
@@ -1145,6 +1802,163 @@
         ],
         "title": "LoginRequest",
         "description": "POST /api/v1/auth/login 请求体：identifier 为学号或工号。"
+      },
+      "MyPointsResponse": {
+        "properties": {
+          "balance": {
+            "type": "integer",
+            "title": "Balance"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PointEntryResponse"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "balance",
+          "entries"
+        ],
+        "title": "MyPointsResponse",
+        "description": "GET /api/v1/users/me/points 响应。"
+      },
+      "NotificationListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "NotificationListResponse"
+      },
+      "NotificationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "actor_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Actor Id"
+          },
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
+          },
+          "is_read": {
+            "type": "boolean",
+            "title": "Is Read"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "actor_id",
+          "target_type",
+          "target_id",
+          "is_read",
+          "created_at"
+        ],
+        "title": "NotificationResponse"
+      },
+      "PointEntryResponse": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "delta": {
+            "type": "integer",
+            "title": "Delta"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "event_id",
+          "delta",
+          "reason",
+          "occurred_at"
+        ],
+        "title": "PointEntryResponse",
+        "description": "积分流水行（F07 闭环；与 ReputationEntryResponse 字段口吻对齐）。"
       },
       "PostAnswerRequest": {
         "properties": {
@@ -1384,6 +2198,20 @@
         "title": "QuestionStatus",
         "description": "问题生命周期状态（US-Q08）：关闭为终态，backlog 无重开故事（2026-09-29 裁定全冻结）。"
       },
+      "ReadAllResponse": {
+        "properties": {
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "updated"
+        ],
+        "title": "ReadAllResponse"
+      },
       "RefreshRequest": {
         "properties": {
           "refresh_token": {
@@ -1622,6 +2450,64 @@
         ],
         "title": "TokenPairResponse",
         "description": "登录/刷新成功返回的令牌对。"
+      },
+      "UnreadCountResponse": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "UnreadCountResponse"
+      },
+      "UserBadgesResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "answer_count": {
+            "type": "integer",
+            "title": "Answer Count"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "acceptance_rate": {
+            "type": "number",
+            "title": "Acceptance Rate"
+          },
+          "longest_streak_days": {
+            "type": "integer",
+            "title": "Longest Streak Days"
+          },
+          "badges": {
+            "items": {
+              "$ref": "#/components/schemas/BadgeResponse"
+            },
+            "type": "array",
+            "title": "Badges"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "answer_count",
+          "accepted_count",
+          "acceptance_rate",
+          "longest_streak_days",
+          "badges"
+        ],
+        "title": "UserBadgesResponse",
+        "description": "GET /api/v1/users/{id}/badges 响应（公开；实时计算）。"
       },
       "ValidationError": {
         "properties": {

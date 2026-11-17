@@ -41,21 +41,75 @@
   - `created_from` / `created_to`：创建时间**闭区间**，**必须带时区**；naive → 422；`created_from > created_to` → 422
   - 空 `tag=`（空串）、非法字符标签、非法时间格式、tag 去重后超过 5 个（与每题标签上限一致）→ 422
   - 筛选条件同时作用于 `total` 统计与当前页数据（同口径）；筛选后超总页仍 **200 空列表**
+- 搜索（F02，2026-11-12）：
+  - `q`：匹配**标题 + 正文**，大小写不敏感；空串/纯空白等价于不传
+  - 至多 **100 字**；含制表符/换行/回车或其它控制字符 → **422 字符串形**
+  - `%`、`_`、`\` 按**字面**匹配（不是通配符）
+  - 可与 `tag`/`status`/`created_from`/`created_to`/`sort`/分页任意组合，`total` 与结果同口径
 - 响应：`{items, total, page, page_size, total_pages}`；**空库 `total_pages = 0`**
 - 排序：`created_at` 新→旧（同刻按 id 定序，跨页零重复零漏项）；`sort=votes` 按净票数，可与全部筛选组合
 - 超总页 → **200 空列表**（非 404）
 
-## 四点五、声誉查询口径（`GET /api/v1/users/{user_id}/reputation`）
+## 四点五、相关问题推荐（`GET /api/v1/questions/{id}/related`，F03）
+
+- 访客可用；返回 `QuestionListItem[]`，**无分页、无 `total`**
+- `limit` 1~10，默认 5；越界 → **422**
+- 排序：标签重合数降序 → 净票数降序 → 创建时间降序 → id 降序；**排除自身**
+- 无标签问题 → **200 空数组**；问题不存在 → **404**（detail `"问题不存在"`）
+- 关闭问题仍可被推荐（与列表 `status` 口径一致，不额外过滤）
+
+## 四点六、声誉查询口径（`GET /api/v1/users/{user_id}/reputation`）
 
 - **仅本人**（v3.1 裁定 4）：他人查询 → **403**（author_id 在问题/回答已公开，无存在性可泄露）；未登录 401
 - **最终一致**：投票/采纳后声誉流水经 Celery **异步**落账（实测结算延迟亚秒~1.3s）——前端**勿假设 204 后同步可查**，展示前轮询或容忍短暂滞后
 - `entries` 不分页（流水量小）；`total` 可为负（踩分计入）；空账 `total=0` + 空列表
 - 分值口径唯一出处：后端 `reputation/domain/ledger.py` 常量（答赞 +10 / 答踩 −2 / 题赞 +5 / 题踩 −2 / 采纳 +15，自投不计分）
 
-## 四点六、会话与登出口径（`POST /api/v1/auth/logout`）
+## 四点七、会话与登出口径（`POST /api/v1/auth/logout`）
 
 - logout 吊销 **Refresh 令牌**，幂等 **204**（无效/已吊销令牌同样 204，不暴露令牌状态）；
 - **Access 令牌不进黑名单**：登出后其在剩余有效期（≤15 分钟）内仍可通过认证——无状态 JWT 的标准取舍（业界惯例）；前端登出即清本地令牌，勿依赖服务端立即失效。
+
+## 四点八、排行榜（`GET /api/v1/leaderboard`，F05）
+
+- **公开**，无需登录；空榜返回 200 + `entries=[]`
+- `period`：`week`（默认）/ `month` / `semester`
+- 学期边界（Asia/Shanghai）：春季 3/1–8/1，秋季 9/1–次年 2/1；**2 月归上一秋季、8 月归当年春季**
+- 得分 = 期间 `SUM(delta)` **净得分**（含负）；名次为 **同分同名次**（1,1,3），同分按 `user_id` 升序稳定
+- `limit` 1~100，默认 10；非法 `period`/越界 `limit` → 422
+- 响应：`{period, period_start, period_end, entries:[{user_id, score, rank}]}`；展示名待 F11
+
+## 四点九、用户徽章（`GET /api/v1/users/{id}/badges`，F06）
+
+- **公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）
+- 实时计算，不物化；响应含 `answer_count`、`accepted_count`、`acceptance_rate`、`longest_streak_days`、`badges[]`
+- 徽章族与阈值：
+  - 回答数：5 / 20 / 50（铜/银/金）
+  - 采纳率：回答数 ≥5 才评估，50% / 70% / 90%
+  - 连续活跃：**历史最长**连续天数 3 / 7 / 30；活跃按 Asia/Shanghai 自然日，含发帖/回答/评论/投票
+- 徽章 `code` 形如 `answers_5`、`acceptance_70`、`streak_3`；同族可同时命中多档
+- 无活动 → 200 + `badges=[]`（非 404）
+
+## 四点十、通知中心（`/api/v1/notifications`，F04）
+
+- 全部端点**要求登录**（401 未认证）；收件人恒取令牌当前用户
+- `GET ""`：分页 `page/page_size/unread_only`，`created_at` 新→旧；响应 `{items,total,page,page_size,total_pages}`
+- `GET /unread-count`：`{count}`
+- `POST /{id}/read`：幂等 **204**；非本人/不存在 → **404**（不泄露存在性）
+- `POST /read-all`：`{updated}`（本次由未读转为已读的条数，幂等）
+- 通知类型：`answer_posted` / `answer_accepted` / `comment_created`；自己操作自己的内容不产生通知
+- 每条通知含可选 `question_id`（新写入的通知无论目标为问题还是回答均带所属 `question_id`，存量历史通知可能为 `null`）
+- 同事件对同一收件人只落一条（库级唯一键），重复触发不会重复插入
+
+## 四点十一、教师悬赏（`/api/v1/questions/{id}/bounty`）与个人积分（`/api/v1/users/me/points`，F07）
+
+- `POST /api/v1/questions/{id}/bounty`：**仅教师**（学生 403）；body `{"amount": 1~1000000}`
+  - 问题不存在 404；问题已关闭 409；**问题已有采纳答案 409**；余额不足 409；同一问题已有进行中悬赏 409
+  - 成功 201，返回 `{id,question_id,teacher_id,amount,status:"open",created_at,settled_at:null}`
+- `GET /api/v1/questions/{id}/bounty`：公开；返回进行中悬赏，无悬赏 → `200 null`；问题不存在 → 404
+- `GET /api/v1/users/me/points`：需登录（401）；返回 `{balance, entries: [{source, event_id, delta, reason, occurred_at}]}`；教师首次访问惰性开户并发放 100 初始分，学生只读既有余额与流水
+- 资金流：发起时冻结积分；采纳时结算给答主；关闭且未采纳时全额退款（各只发生一次）
+- 积分与声誉分离；教师初始额度 100 分，首版无充值/发放端点
 
 ## 五、开发期调试入口
 

@@ -45,7 +45,7 @@
 
 ## 功能现状
 
-后端已交付 **17 条路径 / 19 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
+后端已交付 **26 条路径 / 29 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
 
 | 域 | 端点 | 说明 |
 |:---|:---|:---|
@@ -55,18 +55,28 @@
 | | `POST /api/v1/auth/logout` | 吊销 Refresh，幂等 204 |
 | | `GET /api/v1/auth/me` | 当前用户信息（需 Bearer Access） |
 | 问答 | `POST /api/v1/questions` | 发布问题（登录用户，可带至多 5 个标签） |
-| | `GET /api/v1/questions` | 列表（访客可用，分页；默认时间新→旧，可切净票数排序） |
+| | `GET /api/v1/questions` | 列表（访客可用，分页；支持 `q` 搜索、`tag`/`status`/创建时间筛选与 `latest`/`votes` 排序） |
 | | `GET /api/v1/questions/{id}` | 详情（访客可用，答案按采纳优先排序，含标签与三级评论） |
+| | `GET /api/v1/questions/{id}/related` | 相关问题推荐（按标签共现，访客可用） |
 | | `PATCH /api/v1/questions/{id}` | 编辑问题（仅提问者；仅标题+正文，部分更新；已关闭 409） |
-| | `POST /api/v1/questions/{id}/close` | 关闭问题（仅提问者，终态；重复关闭/已采纳 409） |
+| | `POST /api/v1/questions/{id}/close` | 关闭问题（仅提问者，终态；重复关闭/已采纳 409；未采纳悬赏全额退款） |
 | | `POST /api/v1/questions/{id}/answers` | 发布回答 |
 | | `POST /api/v1/questions/{id}/vote` | 问题投票（顶/踩） |
 | | `POST /api/v1/questions/{id}/answers/{aid}/vote` | 回答投票（重复票/改票一律 409） |
 | | `POST /api/v1/questions/{id}/comments` | 问题评论 |
 | | `POST /api/v1/answers/{aid}/comments` | 回答评论 |
-| | `POST /api/v1/answers/{id}/accept` | 采纳最佳答案（仅提问者，非作者 403 / 重复采纳 409） |
+| | `POST /api/v1/answers/{id}/accept` | 采纳最佳答案（仅提问者，非作者 403 / 重复采纳 409；联动结算悬赏） |
 | 标签 | `GET /api/v1/tags` | 标签目录（访客可用，码点序、同名唯一归并） |
+| 徽章 | `GET /api/v1/users/{id}/badges` | 用户徽章与活跃统计（公开；回答数/采纳率/最长连续活跃） |
+| 悬赏 | `POST /api/v1/questions/{id}/bounty` | 发起教师悬赏（仅教师 403；关闭/已采纳/余额不足/重复悬赏 409） |
+| | `GET /api/v1/questions/{id}/bounty` | 查询进行中的悬赏（公开；无则 `null`） |
+| 积分 | `GET /api/v1/users/me/points` | 查询本人可消费积分余额与流水（需登录；教师首次访问惰性发放 100 分） |
 | 声誉 | `GET /api/v1/users/{id}/reputation` | 本人声誉总值与变动流水（他人 403） |
+| 榜单 | `GET /api/v1/leaderboard` | 声誉排行榜（公开；`week`/`month`/`semester`） |
+| 通知 | `GET /api/v1/notifications` | 本人通知列表（分页 + 未读筛选，含可选 `question_id`） |
+| | `GET /api/v1/notifications/unread-count` | 未读通知数 |
+| | `POST /api/v1/notifications/{id}/read` | 单条标记已读（幂等 204） |
+| | `POST /api/v1/notifications/read-all` | 全部标记已读 |
 | 运维 | `GET /health` | 存活探针（无 DB 依赖） |
 
 已关闭的问题为**终态**：投票（题/答）、新增回答、评论、采纳、编辑一律 409（库级条件 UPDATE 并发兜底）。
@@ -89,24 +99,24 @@
 
 | 门禁 | 结果 |
 |:---|:---|
-| pytest | 302 passed（CI 单测口径 183 passed，集成用例需 PG+Redis） |
-| 覆盖率 | TOTAL 78.10% ≥ 70；domain 层 96% ≥ 90 |
+| pytest | CI 单测口径 288 passed（总用例 468 条，180 条 integration 需 PG+Redis） |
+| 覆盖率 | TOTAL 82.90% ≥ 70；domain 层 94% ≥ 90 |
 | ruff | 0 违规 |
-| mypy --strict | 0 错误（86 文件） |
-| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；17 paths / 19 ops） |
+| mypy --strict | 0 错误（134 文件） |
+| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；26 paths / 29 ops） |
 
 ## 目录结构
 
 ```
 app/
 ├── config/settings.py            # Pydantic Settings（.env 覆盖）
+├── platform/http/                # Web 中间件、错误映射、会话依赖
 ├── shared/                       # 引擎、异常处理、文本校验等共享内核
 └── contexts/
     ├── identity/                 # 注册 / 登录 / JWT / RBAC
-    ├── qa/                       # 问题 / 回答 / 投票 / 采纳 / 评论 / 标签
-    ├── reputation/               # 声誉流水 + Celery 记账
-    ├── course/                   # 迭代 5+ 预留
-    └── discovery/                # 搜索 / 推荐 / 通知，迭代 5+ 预留
+    ├── qa/                       # 问题 / 回答 / 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
+    ├── reputation/               # 声誉流水 + 排行榜 + Celery 记账
+    └── discovery/                # 站内通知中心（F04）
 alembic/                          # 迁移脚本（生成后须人工审核才 upgrade）
 tests/                            # 单元 + 集成测试
 docs/                             # PROGRESS / adr / domain / sprint / api / test / plan
