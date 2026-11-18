@@ -75,6 +75,9 @@ class FakeAnswerRepository:
     async def update(self, answer: Answer) -> None:
         return None
 
+    async def update_body(self, answer: Answer) -> None:
+        return None
+
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
         return next((a for a in self.added if a.id == answer_id), None)
 

@@ -155,7 +155,11 @@ class AnswerRepository(Protocol):
         ...
 
     async def update(self, answer: Answer) -> None:
-        """更新既有回答聚合（采纳翻转 is_accepted，US-V03 迭代 3）。"""
+        """更新既有回答聚合的采纳态（仅翻转 is_accepted，US-V03 迭代 3）。"""
+        ...
+
+    async def update_body(self, answer: Answer) -> None:
+        """F12：仅更新回答正文（与采纳条件更新分离，不触碰 is_accepted）。"""
         ...
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:

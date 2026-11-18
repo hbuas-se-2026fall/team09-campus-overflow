@@ -3,16 +3,21 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import CursorResult, select
+from sqlalchemy import CursorResult, exists, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.qa.domain.answer import Answer
-from app.contexts.qa.domain.errors import AnswerAlreadyAcceptedError
+from app.contexts.qa.domain.errors import (
+    AnswerAlreadyAcceptedError,
+    AnswerNotFoundError,
+    QuestionClosedError,
+)
+from app.contexts.qa.domain.question import QuestionStatus
 from app.contexts.qa.domain.value_objects import Body
 from app.contexts.qa.domain.vote import VoteTarget
-from app.contexts.qa.infrastructure.models import AnswerModel, VoteModel
+from app.contexts.qa.infrastructure.models import AnswerModel, QuestionModel, VoteModel
 from app.contexts.qa.infrastructure.sql_expressions import net_votes_expr
 
 
@@ -58,6 +63,38 @@ class SqlAlchemyAnswerRepository:
             raise AnswerAlreadyAcceptedError("该问题已有采纳答案（并发兜底）") from exc
         if result.rowcount == 0:
             raise AnswerAlreadyAcceptedError("该答案已被采纳")
+
+    async def update_body(self, answer: Answer) -> None:
+        """F12：仅更新回答正文（条件 UPDATE 兜底所属问题未关闭，绝不触碰 is_accepted）。"""
+        open_question_exists = exists(
+            select(1)
+            .where(
+                QuestionModel.id == AnswerModel.question_id,
+                QuestionModel.status != QuestionStatus.CLOSED.value,
+            )
+            .correlate(AnswerModel)
+        )
+        stmt = (
+            sql_update(AnswerModel)
+            .where(AnswerModel.id == answer.id, open_question_exists)
+            .values(body=answer.body.value)
+            .execution_options(synchronize_session=False)
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        if result.rowcount > 0:
+            return
+
+        row = (
+            await self._session.execute(
+                select(QuestionModel.status)
+                .select_from(AnswerModel)
+                .join(QuestionModel, QuestionModel.id == AnswerModel.question_id)
+                .where(AnswerModel.id == answer.id)
+            )
+        ).first()
+        if row is None:
+            raise AnswerNotFoundError("回答不存在")
+        raise QuestionClosedError("已关闭的问题不可编辑回答（并发兜底）")
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
         model = (

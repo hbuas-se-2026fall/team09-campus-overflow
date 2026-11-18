@@ -21,6 +21,10 @@ class NotQuestionAuthorError(QADomainError):
     """非提问者尝试采纳：仅提问者可采纳其问题的回答（US-V03，路由层转 403）。"""
 
 
+class NotAnswerAuthorError(QADomainError):
+    """非回答者尝试编辑：仅回答者本人可编辑自己的回答（US-A02 / F12，路由层转 403）。"""
+
+
 class AnswerAlreadyAcceptedError(QADomainError):
     """问题已有采纳答案：一题仅一个最佳答案，重复采纳一律 409（US-V03 幂等）。
 

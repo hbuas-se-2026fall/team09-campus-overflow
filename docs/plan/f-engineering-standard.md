@@ -151,7 +151,7 @@
 
 | 编号 | 名称 | 核心工程内容 | 迁移 |
 |:---|:---|:---|:---|
-| **F12** | 编辑回答（US-A02） | `Answer.edit_body()`（限作者本人且问题未关闭）；仓储分离正文更新与采纳条件更新；新增 `PATCH /api/v1/answers/{id}` | 否 |
+| **F12** | 编辑回答（US-A02，已交付 2026-11-18） | `Answer.edit_body()`（限作者本人且问题未关闭）；仓储分离正文更新与采纳条件更新；新增 `PATCH /api/v1/answers/{id}` | 否 |
 | **F13** | 软删除与全链路过滤（已预留） | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`；统一回改 F01–F06 所有查询与统计过滤 `deleted_at IS NULL` | 是 |
 | **F14** | 评论二级回复 | `comments` 增可空自引用 `parent_id`（同宿主校验），详情接口返回带 `parent_id` 的评论列表 | 是 |
 | **F15** | RBAC 扩展与教师认证回答 | `identity` 扩展 `ta`（助教）与 `admin` 角色；`answers` 增 `is_teacher_verified`，新增 `POST /api/v1/answers/{id}/verify`（`require_roles("teacher", "ta")`） | 是 |

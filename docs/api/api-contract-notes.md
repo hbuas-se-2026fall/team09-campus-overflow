@@ -129,6 +129,13 @@
   - 通知条目（`NotificationResponse`）增量返回 `actor_name`。
 - `GET /api/v1/users/{user_id}/profile`：**公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）；最小披露返回 `{user_id, role, display_name, nickname, college, class_name}`，严禁返回 `email`、`student_id`、`staff_id`、`email_verified` 等隐私字段。
 
+## 四点十四、编辑回答（`PATCH /api/v1/answers/{answer_id}`，F12）
+
+- 需登录（401）；**仅回答者本人**可编辑（非作者含提问者均 **403** `"仅回答者可编辑回答"`）。
+- 请求体：`{"body": "1~5000字"}`（`extra=forbid`、`str_strip_whitespace=True`，纯空白/控制字符 → 422）。
+- 回答不存在 → **404**；所属问题已关闭 → **409**；**已采纳回答**（所属问题必为 `open` 态）仍允许回答者本人编辑且保持 `is_accepted=true`。
+- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入）。
+
 ## 五、开发期调试入口
 
 后端跑起来后直接开 **Swagger UI**：`http://localhost:<port>/docs`——交互式调试每个端点，与 `openapi.json` 同源生成。
