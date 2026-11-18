@@ -32,7 +32,7 @@
 | 限界上下文纵切 | 按 5 个子域分包：identity / qa / course / reputation / discovery，每个上下文内再分 domain / application / infrastructure / interfaces（ADR-002） |
 | 数据库选型 | PostgreSQL 16 替代课程默认 MySQL 8：JSONB、全文检索、asyncpg 异步生态（ADR-001） |
 | 单体 + 模块化 | 单进程部署，靠目录与 import 纪律维持上下文边界（reputation 对 qa 零 import，仅经事件载荷通信） |
-| 认证 | JWT Access 15min + Refresh 7d 存 Redis（GETDEL 原子轮换、可吊销）+ RBAC；bcrypt 口令哈希 |
+| 认证 | JWT Access 15min + Refresh 7d 存 Redis（GETDEL 原子轮换、可吊销）+ RBAC；bcrypt 口令哈希；支持校园资料维护与邮箱验证码（Redis Lua + HMAC） |
 | 主键 | UUID 全局主键 |
 | 领域分层 | domain 层纯 Python，不 import FastAPI / SQLAlchemy；聚合刻意收小 |
 | 并发一致性 | 库级约束兜底：投票复合唯一索引 `(user_id, target_type, target_id)`、部分唯一索引保证"一题一采纳" |
@@ -114,11 +114,11 @@
 app/
 ├── config/settings.py            # Pydantic Settings（.env 覆盖）
 ├── platform/http/                # Web 中间件、错误映射、会话依赖
-├── shared/                       # 引擎、异常处理、文本校验等共享内核
+├── shared/                       # 引擎、异常处理、文本校验、UNSET 哨兵等共享内核
 └── contexts/
-    ├── identity/                 # 注册 / 登录 / JWT / RBAC
-    ├── qa/                       # 问题 / 回答 / 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
-    ├── reputation/               # 声誉流水 + 排行榜 + Celery 记账
+    ├── identity/                 # 注册 / 登录 / JWT / RBAC / 校园资料 / 邮箱验证（F09–F10）
+    ├── qa/                       # 问题（pg_trgm 检索）/ 回答 / 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
+    ├── reputation/               # 声誉流水 + 排行榜（Redis 缓存）+ Celery 记账（F05/F08）
     └── discovery/                # 站内通知中心（F04）
 alembic/                          # 迁移脚本（生成后须人工审核才 upgrade）
 tests/                            # 单元 + 集成测试
@@ -158,9 +158,11 @@ pip install -r requirements-dev.txt
 # 2. 基础设施（db + redis，等 healthcheck 通过）
 docker compose up -d
 
-# 3. 配置（可选：复制 .env.example 为 .env 覆盖，字段均有开发默认值；生产必须覆盖 jwt_secret）
+# 3. 配置（可选：复制 .env.example 为 .env 覆盖，字段均有开发默认值；prod 必须覆盖密钥与完整 SMTP）
+#    app_env（dev/test/prod）、jwt_secret、email_verify_hmac_secret（prod 默认值启动 fail-fast）
 #    db_port / redis_port（Windows 若 5432/6379 落入 Hyper-V 保留段可改用 15432/16379）
-#    database_url / redis_url / celery_broker_url / jwt_secret
+#    database_url / redis_url / celery_broker_url / leaderboard_cache_ttl_seconds
+#    smtp_host / smtp_port / smtp_username / smtp_password / smtp_from_email / smtp_use_tls
 #    db_pool_size（0=NullPool 默认；>0 启用连接池，见 ADR-003）
 
 # 4. 迁移（脚本变更须人工审核后执行）
@@ -212,7 +214,8 @@ python scripts/export_openapi.py --check    # 契约防漂移
 | [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md) | 契约消费说明与错误形态速查 |
 | [docs/test/](docs/test) | 各步骤测试台账（含 15 路暴力测试记录） |
 | [docs/plan/phase3-plan.md](docs/plan/phase3-plan.md) | 阶段 3 实施计划 v3 |
+| [docs/plan/f-engineering-standard.md](docs/plan/f-engineering-standard.md) | F 系列工程标准与研发规范（F01–F20） |
 
 ## 当前版本
 
-v0.1.0 —— 阶段 0–3 已收口（含迭代 5：登录锁定 + 问题编辑/关闭），阶段 4 上线未开始。
+v0.1.0 —— 阶段 0–3 已收口，F 系列增量特性已交付 F01–F10（阶段 4 上线未开始）。
