@@ -292,6 +292,49 @@
         ]
       }
     },
+    "/api/v1/users/{user_id}/profile": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "公开用户个人主页（访客可用；F11 最小披露）",
+        "operationId": "get_public_user_profile_api_v1_users__user_id__profile_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicUserProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/questions": {
       "post": {
         "tags": [
@@ -1548,6 +1591,10 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1574,6 +1621,7 @@
           "id",
           "body",
           "author_id",
+          "author_name",
           "created_at",
           "votes",
           "is_accepted"
@@ -1750,6 +1798,10 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1761,6 +1813,7 @@
           "id",
           "body",
           "author_id",
+          "author_name",
           "created_at"
         ],
         "title": "CommentResponse",
@@ -1837,6 +1890,10 @@
             "format": "uuid",
             "title": "User Id"
           },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
           "score": {
             "type": "integer",
             "title": "Score"
@@ -1850,11 +1907,12 @@
         "type": "object",
         "required": [
           "user_id",
+          "display_name",
           "score",
           "rank"
         ],
         "title": "LeaderboardEntryResponse",
-        "description": "榜单行：用户、期间净得分、名次（同分同名次）。"
+        "description": "榜单行：用户、展示名、期间净得分、名次（同分同名次）。"
       },
       "LeaderboardPeriod": {
         "type": "string",
@@ -2000,6 +2058,10 @@
             "format": "uuid",
             "title": "Actor Id"
           },
+          "actor_name": {
+            "type": "string",
+            "title": "Actor Name"
+          },
           "target_type": {
             "type": "string",
             "title": "Target Type"
@@ -2037,6 +2099,7 @@
           "id",
           "type",
           "actor_id",
+          "actor_name",
           "target_type",
           "target_id",
           "is_read",
@@ -2098,6 +2161,65 @@
         "title": "PostAnswerRequest",
         "description": "POST /api/v1/questions/{qid}/answers 请求体（US-A01）。\n\n正文与问题共用 1~5000 字约束；作者只取令牌，绝不取自请求体。"
       },
+      "PublicUserProfileResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "role",
+          "display_name"
+        ],
+        "title": "PublicUserProfileResponse",
+        "description": "GET /api/v1/users/{user_id}/profile 公开名片响应（F11 最小披露）。"
+      },
       "QuestionDetailResponse": {
         "properties": {
           "id": {
@@ -2117,6 +2239,10 @@
             "type": "string",
             "format": "uuid",
             "title": "Author Id"
+          },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
           },
           "created_at": {
             "type": "string",
@@ -2166,6 +2292,7 @@
           "title",
           "body",
           "author_id",
+          "author_name",
           "created_at",
           "accepted_answer_id",
           "status"
@@ -2189,6 +2316,10 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2210,6 +2341,7 @@
           "id",
           "title",
           "author_id",
+          "author_name",
           "created_at",
           "status"
         ],
@@ -2273,6 +2405,10 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2295,6 +2431,7 @@
           "title",
           "body",
           "author_id",
+          "author_name",
           "created_at",
           "status"
         ],

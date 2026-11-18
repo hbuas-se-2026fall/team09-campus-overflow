@@ -27,16 +27,21 @@ from app.contexts.discovery.interfaces.api.schemas import (
     ReadAllResponse,
     UnreadCountResponse,
 )
-from app.contexts.identity.interfaces.api.deps import CurrentUser
+from app.contexts.identity.application.ports import pick_summary_display_name
+from app.contexts.identity.interfaces.api.deps import (
+    CurrentUser,
+    UserSummaryReaderDep,
+)
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 
-def _response(notification: Notification) -> NotificationResponse:
+def _response(notification: Notification, *, actor_name: str) -> NotificationResponse:
     return NotificationResponse(
         id=notification.id,
         type=notification.type.value,
         actor_id=notification.actor_id,
+        actor_name=actor_name,
         target_type=notification.target_type.value,
         target_id=notification.target_id,
         question_id=notification.question_id,
@@ -53,6 +58,7 @@ def _response(notification: Notification) -> NotificationResponse:
 async def list_notifications(
     user: CurrentUser,
     notifications: NotificationRepo,
+    summary_reader: UserSummaryReaderDep,
     page: int = Query(default=1, ge=1, description="页码，从 1 起"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，上限 100"),
     unread_only: bool = Query(default=False, description="只看未读"),
@@ -60,8 +66,15 @@ async def list_notifications(
     view = await ListNotificationsUseCase(notifications).execute(
         user.id, page, page_size, unread_only
     )
+    summaries = await summary_reader.get_summaries(n.actor_id for n in view.items)
     return NotificationListResponse(
-        items=[_response(n) for n in view.items],
+        items=[
+            _response(
+                n,
+                actor_name=pick_summary_display_name(summaries, n.actor_id),
+            )
+            for n in view.items
+        ],
         total=view.total,
         page=view.page,
         page_size=view.page_size,

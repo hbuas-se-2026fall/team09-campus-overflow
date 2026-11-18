@@ -75,7 +75,7 @@ async def test_post_answer_returns_201_whitelist(client: httpx.AsyncClient) -> N
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert set(body.keys()) == {
-        "id", "body", "author_id", "created_at", "votes", "is_accepted", "comments",
+        "id", "body", "author_id", "author_name", "created_at", "votes", "is_accepted", "comments",
     }  # comments 随分支 2 加入白名单
     assert body["body"] == "这是回答正文"  # strip 端到端
     assert body["author_id"] == user_id

@@ -32,6 +32,34 @@ def validate_password_strength(plain: str) -> None:
         raise WeakPasswordError("密码至少 8 位且需同时包含字母和数字")
 
 
+def normalize_public_nickname(nickname: str | None) -> str | None:
+    """清洗公开昵称（兼容历史空串/首尾空白，保证 display_name 与 nickname 口径一致）。"""
+    if nickname is None:
+        return None
+    cleaned = nickname.strip()
+    return cleaned if cleaned else None
+
+
+_ROLE_DISPLAY_PREFIXES: dict[str, str] = {
+    "teacher": "教师",
+    "student": "学生",
+}
+
+
+def resolve_display_name(
+    role: Role | str,
+    user_id: UUID,
+    nickname: str | None,
+) -> str:
+    """公开展示名唯一计算规则（F11）：优先昵称，否则按角色 + 8 位 hex 兜底，绝不泄露学工号/邮箱。"""
+    cleaned = normalize_public_nickname(nickname)
+    if cleaned is not None:
+        return cleaned
+    # 未知/未来扩展角色回退通用“用户”前缀，避免误标为“学生”
+    prefix = _ROLE_DISPLAY_PREFIXES.get(role, "用户")
+    return f"{prefix}#{user_id.hex[:8]}"
+
+
 @dataclass(frozen=True, slots=True)
 class UserRegistered:
     """领域事件：用户注册完成。"""
@@ -74,6 +102,15 @@ class User:
 
     def mark_email_verified(self) -> None:
         self.email_verified = True
+
+    @property
+    def display_name(self) -> str:
+        """当前用户的公开展示名（复用单源规则，不泄露学工号/邮箱）。"""
+        return resolve_display_name(
+            self.role,
+            self.id,
+            self.nickname.value if self.nickname is not None else None,
+        )
 
     @classmethod
     def register(

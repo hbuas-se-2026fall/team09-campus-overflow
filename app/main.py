@@ -14,6 +14,7 @@ from app.contexts.identity.interfaces.api.error_mapping import (
     register_identity_error_handlers,
 )
 from app.contexts.identity.interfaces.api.routes import router as auth_router
+from app.contexts.identity.interfaces.api.routes import users_router
 from app.contexts.qa.interfaces.api.error_mapping import register_qa_error_handlers
 from app.contexts.qa.interfaces.api.routes import answers_router as qa_answers_router
 from app.contexts.qa.interfaces.api.routes import badges_router as qa_badges_router
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     register_identity_error_handlers(application)
     register_qa_error_handlers(application)
     application.include_router(auth_router)
+    application.include_router(users_router)
     application.include_router(qa_router)
     application.include_router(qa_answers_router)
     application.include_router(qa_tags_router)

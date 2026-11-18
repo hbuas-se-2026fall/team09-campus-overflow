@@ -14,6 +14,7 @@ class NotificationResponse(BaseModel):
     id: UUID
     type: str
     actor_id: UUID
+    actor_name: str
     target_type: str
     target_id: UUID
     question_id: UUID | None = None

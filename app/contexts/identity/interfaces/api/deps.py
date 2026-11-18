@@ -10,6 +10,9 @@ from app.config.settings import get_settings
 from app.contexts.identity.application.confirm_email_verification_use_case import (
     ConfirmEmailVerificationUseCase,
 )
+from app.contexts.identity.application.get_public_profile_use_case import (
+    GetPublicUserProfileUseCase,
+)
 from app.contexts.identity.application.login_use_case import LoginUseCase
 from app.contexts.identity.application.logout_use_case import LogoutUseCase
 from app.contexts.identity.application.ports import (
@@ -18,6 +21,8 @@ from app.contexts.identity.application.ports import (
     LOGIN_LOCKOUT_WINDOW,
     REFRESH_TOKEN_TTL,
     EmailVerificationStore,
+    PublicUserProfileReader,
+    UserSummaryReader,
     VerificationCodeSender,
 )
 from app.contexts.identity.application.refresh_token_use_case import RefreshTokenUseCase
@@ -37,6 +42,9 @@ from app.contexts.identity.infrastructure.password_hasher import BcryptPasswordH
 from app.contexts.identity.infrastructure.refresh_store import RedisRefreshTokenStore
 from app.contexts.identity.infrastructure.repository import SqlAlchemyUserRepository
 from app.contexts.identity.infrastructure.token_service import JwtTokenService
+from app.contexts.identity.infrastructure.user_summary_reader import (
+    SqlAlchemyUserSummaryReader,
+)
 from app.platform.http.deps import SessionDep
 from app.shared.redis import get_redis
 
@@ -116,7 +124,26 @@ def get_user_repository(session: SessionDep) -> UserRepository:
     return SqlAlchemyUserRepository(session)
 
 
+def get_user_summary_reader(session: SessionDep) -> UserSummaryReader:
+    """公开供给面：跨上下文批量读取用户公开展示名（F11）。"""
+    return SqlAlchemyUserSummaryReader(session)
+
+
+def get_public_user_profile_reader(session: SessionDep) -> PublicUserProfileReader:
+    return SqlAlchemyUserSummaryReader(session)
+
+
+def build_get_public_profile_use_case(
+    reader: PublicUserProfileReader,
+) -> GetPublicUserProfileUseCase:
+    return GetPublicUserProfileUseCase(reader)
+
+
 UserRepo = Annotated[UserRepository, Depends(get_user_repository)]
+UserSummaryReaderDep = Annotated[UserSummaryReader, Depends(get_user_summary_reader)]
+PublicUserProfileReaderDep = Annotated[
+    PublicUserProfileReader, Depends(get_public_user_profile_reader)
+]
 
 
 async def get_current_user(

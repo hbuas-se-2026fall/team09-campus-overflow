@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.config.settings import get_settings
-from app.contexts.identity.interfaces.api.deps import CurrentUser
+from app.contexts.identity.application.ports import pick_summary_display_name
+from app.contexts.identity.interfaces.api.deps import (
+    CurrentUser,
+    UserSummaryReaderDep,
+)
 from app.contexts.reputation.application.get_leaderboard_use_case import (
     GetLeaderboardUseCase,
 )
@@ -73,6 +77,7 @@ async def get_reputation(
 async def get_leaderboard(
     ledger: ReputationLedgerRepo,
     cache: LeaderboardCacheDep,
+    summary_reader: UserSummaryReaderDep,
     period: LeaderboardPeriod = Query(
         default=LeaderboardPeriod.WEEK,
         description="周期：week=本周；month=本月；semester=当前学期（D10 学期待口径）",
@@ -83,13 +88,17 @@ async def get_leaderboard(
     view = await GetLeaderboardUseCase(
         ledger, cache=cache, cache_ttl_seconds=ttl
     ).execute(period, limit)
+    summaries = await summary_reader.get_summaries(e.user_id for e in view.entries)
     return LeaderboardResponse(
         period=view.period,
         period_start=view.period_start,
         period_end=view.period_end,
         entries=[
             LeaderboardEntryResponse(
-                user_id=e.user_id, score=e.score, rank=e.rank
+                user_id=e.user_id,
+                display_name=pick_summary_display_name(summaries, e.user_id),
+                score=e.score,
+                rank=e.rank,
             )
             for e in view.entries
         ],

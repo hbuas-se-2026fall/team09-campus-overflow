@@ -78,7 +78,7 @@
 - 学期边界（Asia/Shanghai）：春季 3/1–8/1，秋季 9/1–次年 2/1；**2 月归上一秋季、8 月归当年春季**
 - 得分 = 期间 `SUM(delta)` **净得分**（含负）；名次为 **同分同名次**（1,1,3），同分按 `user_id` 升序稳定
 - `limit` 1~100，默认 10；非法 `period`/越界 `limit` → 422
-- 响应：`{period, period_start, period_end, entries:[{user_id, score, rank}]}`；展示名待 F11
+- 响应：`{period, period_start, period_end, entries:[{user_id, display_name, score, rank}]}`（展示名随 F11 实时回填，不受榜单 60s 缓存影响）
 - **热榜缓存（F08，2026-11-17）**：服务端可能命中 Redis 短时缓存，**最大陈旧 = TTL 60s + 声誉 Celery 落账延迟（亚秒~约 1.3s）**；投票/采纳后 60s 内榜单可能仍是旧快照，前端勿假设立即可见。缓存故障自动降级直查 PG，仍返回 200，不会因 Redis 不可用变成 503。
 
 ## 四点九、用户徽章（`GET /api/v1/users/{id}/badges`，F06）
@@ -119,6 +119,15 @@
 - `PATCH /api/v1/auth/me/profile`：需登录（401）；请求体 `nickname`（1–30 字，允许重名）、`college`（1–64 字）、`class_name`（1–64 字）均可选，至少传一项（空 `{}` → 422）；未传字段保持原值，显式传 `null` 清空，传空串/纯空白 → 422；成功返回 **200** + 更新后的 `RegisterResponse`。
 - `POST /api/v1/auth/me/verify-email/send`：需登录（401）；成功 **204**（60s 冷却、15 分钟有效）；60s 内重发 → **429**；已验证用户 → **409**；Redis/SMTP 不可用或未配置 → **503**（自动回滚冷却与验证码，可立即重试）。
 - `POST /api/v1/auth/me/verify-email/confirm`：需登录（401）；body `{"code": "6位ASCII数字"}`；成功或已验证 → **204**（幂等）；错码/过期/连续 5 次错码作废 → **400**（统一文案防枚举）；Redis 故障 → **503**。
+
+## 四点十三、公开展示名与个人主页（F11）
+
+- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `学生#<8位hex>`、`教师#<8位hex>` 或通用 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
+- **增量回填字段**：
+  - 问答与评论（`QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse`、`AnswerResponse`、`CommentResponse`）均增量返回 `author_name`；
+  - 排行榜条目（`LeaderboardEntryResponse`）增量返回 `display_name`（即使命中 60s 榜单缓存，展示名仍实时查询回填）；
+  - 通知条目（`NotificationResponse`）增量返回 `actor_name`。
+- `GET /api/v1/users/{user_id}/profile`：**公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）；最小披露返回 `{user_id, role, display_name, nickname, college, class_name}`，严禁返回 `email`、`student_id`、`staff_id`、`email_verified` 等隐私字段。
 
 ## 五、开发期调试入口
 

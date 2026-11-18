@@ -1,6 +1,6 @@
 # CampusOverflow · F 系列工程标准与研发规范（F01–F20）
 
-> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F07`，规划中 `F08–F20` 及顺接 `F21`）。
+> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F11`，规划中 `F12–F20` 及顺接 `F21`）。
 > 上位约束：[GOALS.md](../../GOALS.md)、[.github/workflows/ci.yml](../../.github/workflows/ci.yml)、[tests/test_architecture.py](../../tests/test_architecture.py)、[docs/sprint/review-checklist.md](../sprint/review-checklist.md)。
 
 ---
@@ -123,7 +123,7 @@
 
 ## 五、F01–F20 全量工程总表
 
-### 1. 已交付基线（F01–F07，当前 `main` `6af4044`）
+### 1. 已交付基线（F01–F11）
 
 | 编号 | 名称 | 上下文 | 关键交付与修补 | 迁移 | 台账 |
 |:---|:---|:---|:---|:---|:---|
@@ -134,21 +134,18 @@
 | **F05** | 周/月/学期排行榜 | `reputation` | `GET /api/v1/leaderboard`（`Asia/Shanghai` 窗口 + `RANK()` 竞争排名）；修复测试时间基座隔离 | 无 | [F05-leaderboard.md](../test/F05-leaderboard.md) |
 | **F06** | 用户徽章体系 | `qa` + `identity` | `GET /api/v1/users/{id}/badges`（回答数 / 采纳率 / 历史最长连续活跃天数） | 无 | [F06-badges.md](../test/F06-badges.md) |
 | **F07** | 教师悬赏与个人积分 | `qa` | `POST/GET .../bounty` + `GET /api/v1/users/me/points`；`for_update` 行锁修并发；已采纳问题 409 拦截 | `29caa98ef40a` | [F07-bounty.md](../test/F07-bounty.md) |
+| **F08** | 排行榜索引与热榜缓存（D5） | `reputation` | `reputation_ledgers` 增 `(occurred_at, user_id) INCLUDE (delta)` 覆盖索引；`GET /api/v1/leaderboard` 接入 Redis 短时缓存（TTL 60s，故障降级直查库） | `6360fb6b24dd` | [F08-leaderboard-cache.md](../test/F08-leaderboard-cache.md) |
+| **F09** | 核心读路径性能与搜索索引升级 | `identity` + `qa` | `SqlAlchemyUserRepository` 合并为单条 4 步 `outerjoin`；`questions` 启用 `pg_trgm` 双 GIN 索引（`ix_questions_title_trgm`/`body_trgm`） | `ef84c7f8187e` | [F09-read-perf-and-trgm.md](../test/F09-read-perf-and-trgm.md) |
+| **F10** | 校园资料扩展与邮箱验证 | `identity` + `shared` | `users` 增 `nickname`/`college`/`class_name`/`email_verified`；新增 `PATCH /api/v1/auth/me/profile` 与邮箱验证码发送/确认接口（Redis HMAC + Lua） | `c451483b0660` | [F10-profile-and-email-verify.md](../test/F10-profile-and-email-verify.md) |
+| **F11** | 公开展示名供给面与个人主页 | `identity` + `qa` / `reputation` / `discovery` | `identity/application/ports.py` + `deps.py` 暴露 `UserSummaryReaderDep`/`PublicUserProfileReaderDep`；问答/评论/榜单/通知增量回填展示名；新增公开 `GET /api/v1/users/{user_id}/profile`（最小披露） | 无（复用 F10） | [F11-display-name-and-profile.md](../test/F11-display-name-and-profile.md) |
 
-> 当前基线契约规模：**26 paths / 29 operations**（[openapi.json](../../openapi.json)），CI 单测 **288 passed**（总覆盖率 82.90%，domain 94%），前端测试 **12 files / 39 passed**。
+> 当前基线契约规模：**30 paths / 33 operations**（[openapi.json](../../openapi.json)），CI 单测 **330 passed**（全量含集成 **524 passed**，总覆盖率 **83.60%**，domain **94%**）。
 
 ---
 
-### 2. 后续规划路线图（F08–F20，顺接 F21）
+### 2. 后续规划路线图（F12–F20，顺接 F21）
 
-#### 阶段 A：性能收口与身份展示闭环（F08–F11，优先推进以打通前端联调）
-
-| 编号 | 名称 | 核心工程内容 | 迁移 |
-|:---|:---|:---|:---|
-| **F08** | 排行榜索引与热榜缓存（D5） | `reputation_ledgers` 增 `(occurred_at, user_id)` 复合索引；`GET /api/v1/leaderboard` 接入 Redis 短时缓存（TTL 30–60s，故障优雅降级直查库） | 是 |
-| **F09** | 核心读路径性能与搜索索引升级（D6 + F02 演进） | `SqlAlchemyUserRepository._to_domain` 由 4 条 SQL 合并为 1 条 `outerjoin`；`questions` 启用 `pg_trgm` GIN 索引（或 `tsvector`），兼容现有 `q` 参数语义 | 是 |
-| **F10** | 校园资料扩展与邮箱验证 | `users` 增 `nickname`、`college`、`class_name`、`email_verified`；新增 `PATCH /api/v1/auth/me/profile` 与邮箱验证码发送/校验接口（Redis 60s 冷却 + 15min 有效） | 是 |
-| **F11** | 公开展示名供给面与个人主页（已预留） | `identity/interfaces/api/` 提供批量 `UserSummaryReader` 供给面（`WHERE id IN (...)` 单次查询）；问答/评论/榜单/通知响应增量回填 `author_name`/`display_name`；新增公开 `GET /api/v1/users/{id}/profile`（最小披露，不含隐私字段） | 否（复用 F10） |
+> 阶段 A（性能收口与身份展示闭环 F08–F11）已全部交付并归入上表。
 
 #### 阶段 B：问答核心补齐与治理（F12–F15）
 

@@ -54,6 +54,19 @@ class RegisterResponse(BaseModel):
     created_at: datetime
 
 
+class PublicUserProfileResponse(BaseModel):
+    """GET /api/v1/users/{user_id}/profile 公开名片响应（F11 最小披露）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    role: str
+    display_name: str
+    nickname: str | None = None
+    college: str | None = None
+    class_name: str | None = None
+
+
 class UpdateProfileRequest(BaseModel):
     """PATCH /api/v1/auth/me/profile 请求体（F10）：空 body 422；显式 null 清空。"""
 
