@@ -1,10 +1,12 @@
+import logging
+
 import asyncpg  # type: ignore[import-untyped]  # asyncpg 无 py.typed，mypy strict 下豁免
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 
-from app.config.settings import get_settings
+from app.config.settings import DEFAULT_EMAIL_VERIFY_HMAC_SECRET, get_settings
 from app.contexts.discovery.interfaces.api.routes import (
     router as discovery_router,
 )
@@ -32,9 +34,15 @@ from app.platform.http.exception_handlers import (
     sqlalchemy_error_handler,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    if settings.email_verify_hmac_secret == DEFAULT_EMAIL_VERIFY_HMAC_SECRET:
+        if settings.app_env == "prod":
+            raise RuntimeError("生产环境禁止使用默认 email_verify_hmac_secret")
+        logger.warning("当前使用默认 email_verify_hmac_secret，仅限开发/测试环境")
     application = FastAPI(title=settings.app_name, debug=settings.debug)
     application.add_middleware(BodyLimitMiddleware)
     # 422 不回显 input（治 surrogate/递归炸弹 500）；数据库错误统一 400 兜底

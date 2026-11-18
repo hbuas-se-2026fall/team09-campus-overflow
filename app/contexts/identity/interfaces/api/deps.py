@@ -7,6 +7,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config.settings import get_settings
+from app.contexts.identity.application.confirm_email_verification_use_case import (
+    ConfirmEmailVerificationUseCase,
+)
 from app.contexts.identity.application.login_use_case import LoginUseCase
 from app.contexts.identity.application.logout_use_case import LogoutUseCase
 from app.contexts.identity.application.ports import (
@@ -14,17 +17,28 @@ from app.contexts.identity.application.ports import (
     LOGIN_FAILURE_THRESHOLD,
     LOGIN_LOCKOUT_WINDOW,
     REFRESH_TOKEN_TTL,
+    EmailVerificationStore,
+    VerificationCodeSender,
 )
 from app.contexts.identity.application.refresh_token_use_case import RefreshTokenUseCase
 from app.contexts.identity.application.register_use_case import RegisterUseCase
+from app.contexts.identity.application.send_email_verification_use_case import (
+    SendEmailVerificationUseCase,
+)
+from app.contexts.identity.application.update_profile_use_case import UpdateProfileUseCase
 from app.contexts.identity.domain.repository import UserRepository
 from app.contexts.identity.domain.user import Role, User
+from app.contexts.identity.infrastructure.email_sender import build_verification_code_sender
+from app.contexts.identity.infrastructure.email_verification_store import (
+    RedisEmailVerificationStore,
+)
 from app.contexts.identity.infrastructure.login_attempt_guard import RedisLoginAttemptGuard
 from app.contexts.identity.infrastructure.password_hasher import BcryptPasswordHasher
 from app.contexts.identity.infrastructure.refresh_store import RedisRefreshTokenStore
 from app.contexts.identity.infrastructure.repository import SqlAlchemyUserRepository
 from app.contexts.identity.infrastructure.token_service import JwtTokenService
 from app.platform.http.deps import SessionDep
+from app.shared.redis import get_redis
 
 _bearer = HTTPBearer(auto_error=False)
 # 模块级单例：不每请求重建（JWT 校验无请求级状态）
@@ -59,6 +73,43 @@ def build_refresh_token_use_case(users: UserRepository) -> RefreshTokenUseCase:
 def build_logout_use_case() -> LogoutUseCase:
     """组装登出用例：令牌服务 + 刷新存储（US-L03 幂等吊销）。"""
     return LogoutUseCase(token_service, refresh_store)
+
+
+def get_email_verification_store() -> EmailVerificationStore:
+    return RedisEmailVerificationStore(
+        get_settings().email_verify_hmac_secret, get_redis
+    )
+
+
+def get_verification_code_sender() -> VerificationCodeSender:
+    return build_verification_code_sender(get_settings())
+
+
+EmailVerificationStoreDep = Annotated[
+    EmailVerificationStore, Depends(get_email_verification_store)
+]
+VerificationCodeSenderDep = Annotated[
+    VerificationCodeSender, Depends(get_verification_code_sender)
+]
+
+
+def build_update_profile_use_case(users: UserRepository) -> UpdateProfileUseCase:
+    return UpdateProfileUseCase(users)
+
+
+def build_send_email_verification_use_case(
+    users: UserRepository,
+    store: EmailVerificationStore,
+    sender: VerificationCodeSender,
+) -> SendEmailVerificationUseCase:
+    return SendEmailVerificationUseCase(users, store, sender)
+
+
+def build_confirm_email_verification_use_case(
+    users: UserRepository,
+    store: EmailVerificationStore,
+) -> ConfirmEmailVerificationUseCase:
+    return ConfirmEmailVerificationUseCase(users, store)
 
 
 def get_user_repository(session: SessionDep) -> UserRepository:

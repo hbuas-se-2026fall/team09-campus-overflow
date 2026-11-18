@@ -4,7 +4,18 @@ import pytest
 
 from app.contexts.identity.domain.errors import IdentityRequiredError, WeakPasswordError
 from app.contexts.identity.domain.user import User, validate_password_strength
-from app.contexts.identity.domain.value_objects import Email, PasswordHash, StaffId, StudentId
+from app.contexts.identity.domain.value_objects import (
+    ClassName,
+    College,
+    Email,
+    Nickname,
+    PasswordHash,
+    StaffId,
+    StudentId,
+    VerificationCode,
+)
+from app.shared.errors import DomainValidationError
+from app.shared.sentinel import UNSET
 
 
 class TestPasswordStrength:
@@ -99,3 +110,48 @@ class TestUserRegistration:
                 password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
                 identity_value=None,
             )
+
+
+class TestProfileAndVerificationValueObjects:
+    def test_nickname_college_class_name_strip_and_limits(self) -> None:
+        assert Nickname("  张同学  ").value == "张同学"
+        assert College("  计算机学院 ").value == "计算机学院"
+        assert ClassName(" 软工2401 ").value == "软工2401"
+
+        with pytest.raises(DomainValidationError):
+            Nickname("   ")
+        with pytest.raises(DomainValidationError):
+            Nickname("a" * 31)
+        with pytest.raises(DomainValidationError):
+            College("a" * 65)
+        with pytest.raises(DomainValidationError):
+            ClassName("x\x00y")
+
+    def test_verification_code_accepts_six_ascii_digits_only(self) -> None:
+        assert VerificationCode("004219").value == "004219"
+        for bad in ("12345", "1234567", "12a456", "١٢٣٤٥٦", "123\x0045"):
+            with pytest.raises(DomainValidationError):
+                VerificationCode(bad)
+
+    def test_user_update_profile_and_mark_verified(self) -> None:
+        user = User.register(
+            role="student",
+            email_value="zhang@stu.edu.cn",
+            password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+            identity_value="2025010101",
+        )
+        assert user.nickname is None
+        assert user.email_verified is False
+
+        user.update_profile(nickname=Nickname("小张"), college=College("计算机学院"))
+        assert user.nickname == Nickname("小张")
+        assert user.college == College("计算机学院")
+        assert user.class_name is None
+
+        user.update_profile(nickname=UNSET, college=None, class_name=ClassName("2401"))
+        assert user.nickname == Nickname("小张")
+        assert user.college is None
+        assert user.class_name == ClassName("2401")
+
+        user.mark_email_verified()
+        assert user.email_verified is True

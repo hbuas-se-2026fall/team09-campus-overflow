@@ -12,19 +12,27 @@ from fastapi import FastAPI, status
 from app.contexts.identity.domain.errors import (
     AccountLockedError,
     EmailAlreadyExistsError,
+    EmailAlreadyVerifiedError,
+    EmailVerificationUnavailableError,
     IdentityAlreadyExistsError,
     IdentityDomainError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    InvalidVerificationCodeError,
+    VerificationCooldownError,
 )
 from app.platform.http.error_mapping import make_domain_error_handler
 
 IDENTITY_ERROR_STATUS: dict[type[Exception], int] = {
     EmailAlreadyExistsError: status.HTTP_409_CONFLICT,
     IdentityAlreadyExistsError: status.HTTP_409_CONFLICT,
+    EmailAlreadyVerifiedError: status.HTTP_409_CONFLICT,
     InvalidCredentialsError: status.HTTP_401_UNAUTHORIZED,
     InvalidRefreshTokenError: status.HTTP_401_UNAUTHORIZED,
     AccountLockedError: status.HTTP_423_LOCKED,
+    VerificationCooldownError: status.HTTP_429_TOO_MANY_REQUESTS,
+    InvalidVerificationCodeError: status.HTTP_400_BAD_REQUEST,
+    EmailVerificationUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
     # 其余 IdentityDomainError 子类（弱密码/缺身份/未知角色）：422
     IdentityDomainError: status.HTTP_422_UNPROCESSABLE_CONTENT,
 }

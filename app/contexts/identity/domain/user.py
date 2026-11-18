@@ -7,7 +7,16 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from app.contexts.identity.domain.errors import IdentityRequiredError, WeakPasswordError
-from app.contexts.identity.domain.value_objects import Email, PasswordHash, StaffId, StudentId
+from app.contexts.identity.domain.value_objects import (
+    ClassName,
+    College,
+    Email,
+    Nickname,
+    PasswordHash,
+    StaffId,
+    StudentId,
+)
+from app.shared.sentinel import UNSET, UnsetType
 
 Role = Literal["student", "teacher"]
 
@@ -43,7 +52,28 @@ class User:
     student_id: StudentId | None
     staff_id: StaffId | None
     created_at: datetime
+    nickname: Nickname | None = None
+    college: College | None = None
+    class_name: ClassName | None = None
+    email_verified: bool = False
     events: list[UserRegistered] = field(default_factory=list, repr=False, compare=False)
+
+    def update_profile(
+        self,
+        *,
+        nickname: Nickname | None | UnsetType = UNSET,
+        college: College | None | UnsetType = UNSET,
+        class_name: ClassName | None | UnsetType = UNSET,
+    ) -> None:
+        if not isinstance(nickname, UnsetType):
+            self.nickname = nickname
+        if not isinstance(college, UnsetType):
+            self.college = college
+        if not isinstance(class_name, UnsetType):
+            self.class_name = class_name
+
+    def mark_email_verified(self) -> None:
+        self.email_verified = True
 
     @classmethod
     def register(
