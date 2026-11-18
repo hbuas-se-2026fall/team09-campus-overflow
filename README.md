@@ -45,7 +45,7 @@
 
 ## 功能现状
 
-后端已交付 **26 条路径 / 29 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
+后端已交付 **29 条路径 / 32 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
 
 | 域 | 端点 | 说明 |
 |:---|:---|:---|
@@ -53,7 +53,10 @@
 | | `POST /api/v1/auth/login` | 学号/工号 + 密码 → JWT 双令牌（失败超限 **423** 临时锁定：5 次/15 分钟窗口，防枚举统一计数） |
 | | `POST /api/v1/auth/refresh` | 轮换：旧 Refresh 原子消耗后签发新对 |
 | | `POST /api/v1/auth/logout` | 吊销 Refresh，幂等 204 |
-| | `GET /api/v1/auth/me` | 当前用户信息（需 Bearer Access） |
+| | `GET /api/v1/auth/me` | 当前用户信息（需 Bearer Access，含校园资料与邮箱验证状态） |
+| | `PATCH /api/v1/auth/me/profile` | 局部更新 `nickname`/`college`/`class_name`（显式 `null` 清空，200 返回更新后资料） |
+| | `POST /api/v1/auth/me/verify-email/send` | 发送 6 位邮箱验证码（60s 冷却 429，已验证 409） |
+| | `POST /api/v1/auth/me/verify-email/confirm` | 确认邮箱验证码（幂等 204，错码/过期/5 次作废 400） |
 | 问答 | `POST /api/v1/questions` | 发布问题（登录用户，可带至多 5 个标签） |
 | | `GET /api/v1/questions` | 列表（访客可用，分页；支持 `q` 搜索、`tag`/`status`/创建时间筛选与 `latest`/`votes` 排序） |
 | | `GET /api/v1/questions/{id}` | 详情（访客可用，答案按采纳优先排序，含标签与三级评论） |
@@ -99,11 +102,11 @@
 
 | 门禁 | 结果 |
 |:---|:---|
-| pytest | CI 单测口径 298 passed（总用例 482 条，184 条 integration 需 PG+Redis） |
-| 覆盖率 | TOTAL 83.40% ≥ 70；domain 层 94% ≥ 90 |
+| pytest | CI 单测口径 316 passed（总用例 506 条，190 条 integration 需 PG+Redis） |
+| 覆盖率 | TOTAL 83.66% ≥ 70；domain 层 94% ≥ 90 |
 | ruff | 0 违规 |
-| mypy --strict | 0 错误（135 文件） |
-| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；26 paths / 29 ops） |
+| mypy --strict | 0 错误（141 文件） |
+| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；29 paths / 32 ops） |
 
 ## 目录结构
 

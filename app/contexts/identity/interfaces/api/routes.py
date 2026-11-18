@@ -3,28 +3,39 @@ from __future__ import annotations
 from fastapi import APIRouter, Response, status
 
 from app.contexts.identity.application.commands import (
+    ConfirmEmailVerificationCommand,
     LoginCommand,
     LogoutCommand,
     RefreshTokenCommand,
     RegisterCommand,
+    SendEmailVerificationCommand,
+    UpdateProfileCommand,
 )
 from app.contexts.identity.application.ports import ACCESS_TOKEN_TTL
 from app.contexts.identity.domain.user import User
 from app.contexts.identity.interfaces.api.deps import (
     CurrentUser,
+    EmailVerificationStoreDep,
     UserRepo,
+    VerificationCodeSenderDep,
+    build_confirm_email_verification_use_case,
     build_login_use_case,
     build_logout_use_case,
     build_refresh_token_use_case,
     build_register_use_case,
+    build_send_email_verification_use_case,
+    build_update_profile_use_case,
 )
 from app.contexts.identity.interfaces.api.schemas import (
+    ConfirmEmailVerificationRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
     TokenPairResponse,
+    UpdateProfileRequest,
 )
+from app.shared.sentinel import UNSET
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -59,6 +70,10 @@ def _user_response(user: User) -> RegisterResponse:
         email=user.email.value,
         student_id=user.student_id.value if user.student_id is not None else None,
         staff_id=user.staff_id.value if user.staff_id is not None else None,
+        nickname=user.nickname.value if user.nickname is not None else None,
+        college=user.college.value if user.college is not None else None,
+        class_name=user.class_name.value if user.class_name is not None else None,
+        email_verified=user.email_verified,
         created_at=user.created_at,
     )
 
@@ -123,3 +138,58 @@ async def logout(payload: RefreshRequest) -> Response:
 )
 async def me(user: CurrentUser) -> RegisterResponse:
     return _user_response(user)
+
+
+@router.patch(
+    "/me/profile",
+    response_model=RegisterResponse,
+    summary="更新当前用户校园资料（F10：局部更新，显式 null 清空）",
+)
+async def update_my_profile(
+    payload: UpdateProfileRequest,
+    user: CurrentUser,
+    users: UserRepo,
+) -> RegisterResponse:
+    fields = payload.model_fields_set
+    command = UpdateProfileCommand(
+        user_id=user.id,
+        nickname=payload.nickname if "nickname" in fields else UNSET,
+        college=payload.college if "college" in fields else UNSET,
+        class_name=payload.class_name if "class_name" in fields else UNSET,
+    )
+    updated = await build_update_profile_use_case(users).execute(command)
+    return _user_response(updated)
+
+
+@router.post(
+    "/me/verify-email/send",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="发送当前用户邮箱验证码（F10：60s 冷却；已验证 409）",
+)
+async def send_email_verification(
+    user: CurrentUser,
+    users: UserRepo,
+    store: EmailVerificationStoreDep,
+    sender: VerificationCodeSenderDep,
+) -> Response:
+    await build_send_email_verification_use_case(users, store, sender).execute(
+        SendEmailVerificationCommand(user_id=user.id)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/me/verify-email/confirm",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="确认当前用户邮箱验证码（F10：幂等 204；错码/过期 400）",
+)
+async def confirm_email_verification(
+    payload: ConfirmEmailVerificationRequest,
+    user: CurrentUser,
+    users: UserRepo,
+    store: EmailVerificationStoreDep,
+) -> Response:
+    await build_confirm_email_verification_use_case(users, store).execute(
+        ConfirmEmailVerificationCommand(user_id=user.id, code=payload.code)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

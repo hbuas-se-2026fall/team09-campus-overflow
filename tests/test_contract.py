@@ -33,6 +33,9 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/auth/refresh",
         "/api/v1/auth/logout",
         "/api/v1/auth/me",
+        "/api/v1/auth/me/profile",
+        "/api/v1/auth/me/verify-email/send",
+        "/api/v1/auth/me/verify-email/confirm",
     ],
     "qa": [
         "/api/v1/questions",
@@ -105,8 +108,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 26, f"paths 数量漂移：期望 26，实际 {len(paths)}"
-        assert len(operations) == 29, f"operations 数量漂移：期望 29，实际 {len(operations)}"
+        assert len(paths) == 29, f"paths 数量漂移：期望 29，实际 {len(paths)}"
+        assert len(operations) == 32, f"operations 数量漂移：期望 32，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
