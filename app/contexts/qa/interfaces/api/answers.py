@@ -46,6 +46,7 @@ async def comment_answer(
         answer_id,
         payload,
         user.id,
+        user.display_name,
         questions,
         answers,
         comments,

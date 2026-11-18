@@ -34,11 +34,12 @@ class ReputationResponse(BaseModel):
 
 
 class LeaderboardEntryResponse(BaseModel):
-    """榜单行：用户、期间净得分、名次（同分同名次）。"""
+    """榜单行：用户、展示名、期间净得分、名次（同分同名次）。"""
 
     model_config = ConfigDict(extra="forbid")
 
     user_id: UUID
+    display_name: str
     score: int
     rank: int
 

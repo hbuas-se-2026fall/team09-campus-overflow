@@ -71,4 +71,5 @@
 | reputation | REP01–REP02 | 迭代 4 |
 | discovery | （暂无独立故事；检索/推荐读模型随 F02/F03 演进） | 阶段 4 后（按需） |
 
-> **2026-11-05 复核裁定（D0=A）**：原「Q07 归属 discovery（筛选=读模型雏形）」修订为 **Q07 筛选落 qa**——列表筛选是 qa 列表查询的自然扩展，已按 F01 六步法落地；discovery 保留全文检索（F02）与相关问题推荐（F03）。
+> **2026-11-05 复核裁定（D0=A）**：原「Q07 归属 discovery（筛选=读模型雏形）」修订为 **Q07 筛选落 qa**——列表筛选是 qa 列表查询的自然扩展，已按 F01 六步法落地；discovery 承载站内通知中心（F04）。
+> **2026-11-18 演进补充（F11）**：`identity` 公开供给面除 `CurrentUser` / `require_roles` 外，新增 `identity/application/ports.py` 中的只读已发布语言 `UserSummary` / `UserSummaryReader`（由 `identity/interfaces/api/deps.py` 暴露 `UserSummaryReaderDep`），供 `qa`、`reputation`、`discovery` 在各自 `interfaces/api` 层批量回填公开展示名，下游 `domain`/`application` 层继续保持对 `identity` 零依赖。

@@ -59,6 +59,7 @@ class CommentResponse(BaseModel):
     id: UUID
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
 
 
@@ -69,6 +70,7 @@ class QuestionResponse(BaseModel):
     title: str
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
@@ -83,6 +85,7 @@ class QuestionListItem(BaseModel):
     id: UUID
     title: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
@@ -110,6 +113,7 @@ class AnswerResponse(BaseModel):
     id: UUID
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     votes: int
     is_accepted: bool
@@ -128,6 +132,7 @@ class QuestionDetailResponse(BaseModel):
     title: str
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     accepted_answer_id: UUID | None
     tags: list[str] = Field(default_factory=list)

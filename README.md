@@ -45,7 +45,7 @@
 
 ## 功能现状
 
-后端已交付 **29 条路径 / 32 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
+后端已交付 **30 条路径 / 33 个操作**（契约见根目录 [openapi.json](openapi.json)，人读说明见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)）：
 
 | 域 | 端点 | 说明 |
 |:---|:---|:---|
@@ -57,10 +57,11 @@
 | | `PATCH /api/v1/auth/me/profile` | 局部更新 `nickname`/`college`/`class_name`（显式 `null` 清空，200 返回更新后资料） |
 | | `POST /api/v1/auth/me/verify-email/send` | 发送 6 位邮箱验证码（60s 冷却 429，已验证 409） |
 | | `POST /api/v1/auth/me/verify-email/confirm` | 确认邮箱验证码（幂等 204，错码/过期/5 次作废 400） |
+| | `GET /api/v1/users/{id}/profile` | 公开个人主页（访客可用，最小披露，不含邮箱与学工号） |
 | 问答 | `POST /api/v1/questions` | 发布问题（登录用户，可带至多 5 个标签） |
-| | `GET /api/v1/questions` | 列表（访客可用，分页；支持 `q` 搜索、`tag`/`status`/创建时间筛选与 `latest`/`votes` 排序） |
-| | `GET /api/v1/questions/{id}` | 详情（访客可用，答案按采纳优先排序，含标签与三级评论） |
-| | `GET /api/v1/questions/{id}/related` | 相关问题推荐（按标签共现，访客可用） |
+| | `GET /api/v1/questions` | 列表（访客可用，分页；含 `author_name`，支持 `q` 搜索、`tag`/`status`/创建时间筛选与 `latest`/`votes` 排序） |
+| | `GET /api/v1/questions/{id}` | 详情（访客可用，答案按采纳优先排序，含标签、`author_name` 与三级评论） |
+| | `GET /api/v1/questions/{id}/related` | 相关问题推荐（按标签共现，访客可用，含 `author_name`） |
 | | `PATCH /api/v1/questions/{id}` | 编辑问题（仅提问者；仅标题+正文，部分更新；已关闭 409） |
 | | `POST /api/v1/questions/{id}/close` | 关闭问题（仅提问者，终态；重复关闭/已采纳 409；未采纳悬赏全额退款） |
 | | `POST /api/v1/questions/{id}/answers` | 发布回答 |
@@ -75,8 +76,8 @@
 | | `GET /api/v1/questions/{id}/bounty` | 查询进行中的悬赏（公开；无则 `null`） |
 | 积分 | `GET /api/v1/users/me/points` | 查询本人可消费积分余额与流水（需登录；教师首次访问惰性发放 100 分） |
 | 声誉 | `GET /api/v1/users/{id}/reputation` | 本人声誉总值与变动流水（他人 403） |
-| 榜单 | `GET /api/v1/leaderboard` | 声誉排行榜（公开；`week`/`month`/`semester`；60s 热榜缓存，Redis 故障降级直查库） |
-| 通知 | `GET /api/v1/notifications` | 本人通知列表（分页 + 未读筛选，含可选 `question_id`） |
+| 榜单 | `GET /api/v1/leaderboard` | 声誉排行榜（公开；`week`/`month`/`semester`；含 `display_name`，60s 热榜缓存，Redis 故障降级直查库） |
+| 通知 | `GET /api/v1/notifications` | 本人通知列表（分页 + 未读筛选，含 `actor_name` 与可选 `question_id`） |
 | | `GET /api/v1/notifications/unread-count` | 未读通知数 |
 | | `POST /api/v1/notifications/{id}/read` | 单条标记已读（幂等 204） |
 | | `POST /api/v1/notifications/read-all` | 全部标记已读 |
@@ -102,11 +103,11 @@
 
 | 门禁 | 结果 |
 |:---|:---|
-| pytest | CI 单测口径 316 passed（总用例 506 条，190 条 integration 需 PG+Redis） |
-| 覆盖率 | TOTAL 83.66% ≥ 70；domain 层 94% ≥ 90 |
+| pytest | CI 单测口径 330 passed（总用例 524 条，194 条 integration 需 PG+Redis） |
+| 覆盖率 | TOTAL 83.60% ≥ 70；domain 层 94% ≥ 90 |
 | ruff | 0 违规 |
-| mypy --strict | 0 错误（141 文件） |
-| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；29 paths / 32 ops） |
+| mypy --strict | 0 错误（143 文件） |
+| 契约防漂移 | `openapi.json` 与代码一致（CI `--check` 门禁；30 paths / 33 ops） |
 
 ## 目录结构
 
@@ -116,10 +117,10 @@ app/
 ├── platform/http/                # Web 中间件、错误映射、会话依赖
 ├── shared/                       # 引擎、异常处理、文本校验、UNSET 哨兵等共享内核
 └── contexts/
-    ├── identity/                 # 注册 / 登录 / JWT / RBAC / 校园资料 / 邮箱验证（F09–F10）
+    ├── identity/                 # 注册 / 登录 / JWT / RBAC / 校园资料 / 邮箱验证 / 公开名片（F09–F11）
     ├── qa/                       # 问题（pg_trgm 检索）/ 回答 / 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
-    ├── reputation/               # 声誉流水 + 排行榜（Redis 缓存）+ Celery 记账（F05/F08）
-    └── discovery/                # 站内通知中心（F04）
+    ├── reputation/               # 声誉流水 + 排行榜（Redis 缓存 + 展示名）+ Celery 记账（F05/F08/F11）
+    └── discovery/                # 站内通知中心（F04/F11）
 alembic/                          # 迁移脚本（生成后须人工审核才 upgrade）
 tests/                            # 单元 + 集成测试
 docs/                             # PROGRESS / adr / domain / sprint / api / test / plan
@@ -218,4 +219,4 @@ python scripts/export_openapi.py --check    # 契约防漂移
 
 ## 当前版本
 
-v0.1.0 —— 阶段 0–3 已收口，F 系列增量特性已交付 F01–F10（阶段 4 上线未开始）。
+v0.1.0 —— 阶段 0–3 已收口，F 系列增量特性已交付 F01–F11（阶段 4 上线未开始）。

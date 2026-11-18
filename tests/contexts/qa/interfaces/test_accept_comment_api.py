@@ -81,7 +81,7 @@ async def test_comment_question_returns_201_whitelist(client: httpx.AsyncClient)
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert set(body.keys()) == {"id", "body", "author_id", "created_at"}
+    assert set(body.keys()) == {"id", "body", "author_id", "author_name", "created_at"}
     assert body["body"] == "可以参考教材第 3 章"  # strip 端到端
     assert body["author_id"] == user_id
     # 出现在问题详情的评论列表（1.3 功能域 9 场景）

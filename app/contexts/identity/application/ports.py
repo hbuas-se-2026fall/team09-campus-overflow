@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
@@ -142,4 +143,52 @@ class VerificationCodeSender(Protocol):
 
     async def send(self, email: str, code: str) -> None:
         """发送 6 位验证码至目标邮箱；发送故障须转为 EmailVerificationUnavailableError。"""
+        ...
+
+
+UNKNOWN_USER_DISPLAY_NAME = "未知用户"
+
+
+@dataclass(frozen=True, slots=True)
+class UserSummary:
+    """F11 已发布语言：跨上下文只读用户公开摘要（不含任何隐私字段）。"""
+
+    user_id: UUID
+    display_name: str
+    role: str
+
+
+def pick_summary_display_name(
+    summaries: Mapping[UUID, UserSummary], user_id: UUID
+) -> str:
+    """F11 已发布语言：从批量摘要中取展示名，缺失用户统一安全回退。"""
+    summary = summaries.get(user_id)
+    return summary.display_name if summary is not None else UNKNOWN_USER_DISPLAY_NAME
+
+
+@dataclass(frozen=True, slots=True)
+class PublicUserProfile:
+    """F11 公开个人主页读模型（最小披露：不含邮箱/学工号/验证态/密码哈希）。"""
+
+    user_id: UUID
+    role: str
+    display_name: str
+    nickname: str | None
+    college: str | None
+    class_name: str | None
+
+
+class UserSummaryReader(Protocol):
+    """F11 公开展示名批量读取端口（供下游 interfaces 层回填）。"""
+
+    async def get_summaries(self, user_ids: Iterable[UUID]) -> dict[UUID, UserSummary]:
+        """按 user_ids 批量查询公开摘要；空集合零 SQL，缺失用户不入字典、不报错。"""
+        ...
+
+
+class PublicUserProfileReader(Protocol):
+    """F11 公开个人主页读取端口（仅投影公开列）。"""
+
+    async def get_public_profile(self, user_id: UUID) -> PublicUserProfile | None:
+        """按 user_id 查询公开个人主页；不存在返回 None。"""
         ...

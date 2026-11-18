@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, Response, status
 
 from app.contexts.identity.application.commands import (
     ConfirmEmailVerificationCommand,
@@ -16,9 +18,11 @@ from app.contexts.identity.domain.user import User
 from app.contexts.identity.interfaces.api.deps import (
     CurrentUser,
     EmailVerificationStoreDep,
+    PublicUserProfileReaderDep,
     UserRepo,
     VerificationCodeSenderDep,
     build_confirm_email_verification_use_case,
+    build_get_public_profile_use_case,
     build_login_use_case,
     build_logout_use_case,
     build_refresh_token_use_case,
@@ -29,6 +33,7 @@ from app.contexts.identity.interfaces.api.deps import (
 from app.contexts.identity.interfaces.api.schemas import (
     ConfirmEmailVerificationRequest,
     LoginRequest,
+    PublicUserProfileResponse,
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
@@ -38,6 +43,7 @@ from app.contexts.identity.interfaces.api.schemas import (
 from app.shared.sentinel import UNSET
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+users_router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 
 @router.post(
@@ -193,3 +199,25 @@ async def confirm_email_verification(
         ConfirmEmailVerificationCommand(user_id=user.id, code=payload.code)
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@users_router.get(
+    "/{user_id}/profile",
+    response_model=PublicUserProfileResponse,
+    summary="公开用户个人主页（访客可用；F11 最小披露）",
+)
+async def get_public_user_profile(
+    user_id: UUID,
+    reader: PublicUserProfileReaderDep,
+) -> PublicUserProfileResponse:
+    profile = await build_get_public_profile_use_case(reader).execute(user_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    return PublicUserProfileResponse(
+        user_id=profile.user_id,
+        role=profile.role,
+        display_name=profile.display_name,
+        nickname=profile.nickname,
+        college=profile.college,
+        class_name=profile.class_name,
+    )

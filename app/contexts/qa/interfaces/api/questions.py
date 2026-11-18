@@ -7,7 +7,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from app.contexts.identity.interfaces.api.deps import CurrentUser
+from app.contexts.identity.interfaces.api.deps import (
+    CurrentUser,
+    UserSummaryReaderDep,
+)
 from app.contexts.qa.application.answer_use_case import PostAnswerUseCase
 from app.contexts.qa.application.ask_question_use_case import AskQuestionUseCase
 from app.contexts.qa.application.close_question_use_case import CloseQuestionUseCase
@@ -35,6 +38,7 @@ from app.contexts.qa.domain.vote import VoteTarget
 from app.contexts.qa.interfaces.api._common import (
     comment_response,
     create_comment_on_target,
+    display_name_for,
     vote_on_target,
 )
 from app.contexts.qa.interfaces.api.deps import (
@@ -85,7 +89,7 @@ async def ask_question(
             tags=tuple(payload.tags),
         )
     )
-    return _question_response(question)
+    return _question_response(question, author_name=user.display_name)
 
 
 @router.get(
@@ -95,6 +99,7 @@ async def ask_question(
 )
 async def list_questions(
     questions: QuestionRepo,
+    summary_reader: UserSummaryReaderDep,
     page: int = Query(default=1, ge=1, description="页码，从 1 起"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，上限 100（S-05）"),
     sort: QuestionSort = Query(
@@ -141,12 +146,14 @@ async def list_questions(
     result = await use_case.execute(
         ListQuestionsQuery(page=page, page_size=page_size, sort=sort, filters=filters)
     )
+    summaries = await summary_reader.get_summaries(q.author_id for q in result.items)
     return QuestionListResponse(
         items=[
             QuestionListItem(
                 id=q.id,
                 title=q.title.value,
                 author_id=q.author_id,
+                author_name=display_name_for(summaries, q.author_id),
                 created_at=q.created_at,
                 tags=[t.value for t in q.tags],
                 status=q.status,
@@ -170,17 +177,26 @@ async def get_question(
     questions: QuestionRepo,
     answers: AnswerRepo,
     comments: CommentRepo,
+    summary_reader: UserSummaryReaderDep,
 ) -> QuestionDetailResponse:
     use_case = GetQuestionUseCase(questions, answers, comments)
     view = await use_case.execute(GetQuestionQuery(question_id=question_id))
     if view is None:
         # S-10：只回业务语义，不泄露内部信息
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
+    # 合并题主 + 回答 + 题评 + 答评的全部 author_id，单次 IN 查询杜绝 N+1
+    author_ids: list[UUID] = [view.question.author_id]
+    author_ids.extend(a.author_id for a in view.answers)
+    author_ids.extend(c.author_id for c in view.question_comments)
+    for comments_list in view.answer_comments.values():
+        author_ids.extend(c.author_id for c in comments_list)
+    summaries = await summary_reader.get_summaries(author_ids)
     return QuestionDetailResponse(
         id=view.question.id,
         title=view.question.title.value,
         body=view.question.body.value,
         author_id=view.question.author_id,
+        author_name=display_name_for(summaries, view.question.author_id),
         created_at=view.question.created_at,
         accepted_answer_id=view.question.accepted_answer_id,
         tags=[t.value for t in view.question.tags],
@@ -190,16 +206,21 @@ async def get_question(
                 id=a.id,
                 body=a.body.value,
                 author_id=a.author_id,
+                author_name=display_name_for(summaries, a.author_id),
                 created_at=a.created_at,
                 votes=a.votes_count,
                 is_accepted=a.is_accepted,
                 comments=[
-                    comment_response(c) for c in view.answer_comments.get(str(a.id), [])
+                    comment_response(c, author_name=display_name_for(summaries, c.author_id))
+                    for c in view.answer_comments.get(str(a.id), [])
                 ],
             )
             for a in view.answers
         ],
-        comments=[comment_response(c) for c in view.question_comments],
+        comments=[
+            comment_response(c, author_name=display_name_for(summaries, c.author_id))
+            for c in view.question_comments
+        ],
     )
 
 
@@ -211,6 +232,7 @@ async def get_question(
 async def list_related_questions(
     question_id: UUID,
     questions: QuestionRepo,
+    summary_reader: UserSummaryReaderDep,
     limit: int = Query(default=5, ge=1, le=10, description="返回条数，1~10"),
 ) -> list[QuestionListItem]:
     use_case = ListRelatedQuestionsUseCase(questions)
@@ -220,11 +242,13 @@ async def list_related_questions(
     if items is None:
         # 与详情同语义：不泄露内部信息
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
+    summaries = await summary_reader.get_summaries(q.author_id for q in items)
     return [
         QuestionListItem(
             id=q.id,
             title=q.title.value,
             author_id=q.author_id,
+            author_name=display_name_for(summaries, q.author_id),
             created_at=q.created_at,
             tags=[t.value for t in q.tags],
             status=q.status,
@@ -253,16 +277,17 @@ async def edit_question(
             body=payload.body,
         )
     )
-    return _question_response(question)
+    return _question_response(question, author_name=user.display_name)
 
 
-def _question_response(question: Question) -> QuestionResponse:
+def _question_response(question: Question, *, author_name: str) -> QuestionResponse:
     """问题白名单响应唯一装配处（创建/编辑复用，tags 统一码点序）。"""
     return QuestionResponse(
         id=question.id,
         title=question.title.value,
         body=question.body.value,
         author_id=question.author_id,
+        author_name=author_name,
         created_at=question.created_at,
         tags=sorted(t.value for t in question.tags),
         status=question.status,
@@ -312,6 +337,7 @@ async def post_answer(
         id=answer.id,
         body=answer.body.value,
         author_id=answer.author_id,
+        author_name=user.display_name,
         created_at=answer.created_at,
         votes=0,  # 新回答无票
         is_accepted=answer.is_accepted,
@@ -392,6 +418,7 @@ async def comment_question(
         question_id,
         payload,
         user.id,
+        user.display_name,
         questions,
         answers,
         comments,
