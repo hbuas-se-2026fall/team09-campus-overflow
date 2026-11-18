@@ -11,7 +11,7 @@
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![React](https://img.shields.io/badge/React-18%20%2B%20TS%205-61DAFB?logo=react&logoColor=black)
 ![OpenAPI](https://img.shields.io/badge/OpenAPI%203.1-31%20paths%20%2F%2034%20ops-6BA539?logo=openapiinitiative&logoColor=white)
-![Coverage](https://img.shields.io/badge/Coverage-83.42%25%20(domain%2094%25)-brightgreen)
+![Coverage](https://img.shields.io/badge/Coverage-83.45%25%20(domain%2094%25)-brightgreen)
 
 [核心特性](#-核心特性) · [架构设计](#-架构设计) · [API 契约](#-api-契约与端点一览) · [快速开始](#-快速开始) · [质量门禁](#-质量门禁与-ci) · [项目结构](#-目录结构) · [文档索引](#-文档索引)
 
@@ -227,10 +227,10 @@ pnpm dev          # Vite 默认代理 /api -> http://localhost:8123（可用 VIT
 |:--|:--|:--|:--|
 | 后端 | Lint | `ruff check .` | **0 违规** |
 | 后端 | 严格类型检查 | `mypy app` | `--strict` **0 错误**（144 文件） |
-| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **345 passed**，总覆盖率 **83.42%**（≥ 70%） |
+| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **346 passed**，总覆盖率 **83.45%**（≥ 70%） |
 | 后端 | 核心聚合覆盖率 | `python -m coverage report --include="*/domain/*" --fail-under=90` | **94%**（≥ 90%） |
 | 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（31 paths / 34 ops） |
-| 后端 | 集成测试（需 PG + Redis） | `pytest -m integration` | **199 passed**（全库合计 **544 passed**） |
+| 后端 | 集成测试（需 PG + Redis） | `pytest -m integration` | **205 passed**（全库合计 **551 passed**） |
 | 前端 | 类型 / 测试 / 构建 / Lint | `pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint` | 由 `frontend` Job 门禁保障 |
 
 ---

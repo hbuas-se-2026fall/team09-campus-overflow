@@ -97,9 +97,13 @@ class SqlAlchemyAnswerRepository:
         raise QuestionClosedError("已关闭的问题不可编辑回答（并发兜底）")
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
+        # update() / update_body() 使用 synchronize_session=False，
+        # populate_existing=True 避免同一会话内回读到 identity map 旧缓存。
         model = (
             await self._session.execute(
-                select(AnswerModel).where(AnswerModel.id == answer_id)
+                select(AnswerModel)
+                .where(AnswerModel.id == answer_id)
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if model is None:
