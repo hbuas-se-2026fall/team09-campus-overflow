@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.contexts.qa.domain.question import QuestionStatus
 from app.shared.errors import DomainValidationError
+from app.shared.text_validation import reject_unsafe_text
 
 
 class AskQuestionRequest(BaseModel):
@@ -35,6 +36,20 @@ class PostAnswerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     body: str = Field(min_length=1, max_length=5000)
+
+
+class EditAnswerRequest(BaseModel):
+    """PATCH /api/v1/answers/{id} 请求体（US-A02 / F12）。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    body: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("body")
+    @classmethod
+    def _reject_unsafe_chars(cls, value: str) -> str:
+        reject_unsafe_text(value, field_name="回答正文")
+        return value
 
 
 class VoteRequest(BaseModel):

@@ -974,6 +974,64 @@
         }
       }
     },
+    "/api/v1/answers/{answer_id}": {
+      "patch": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "编辑回答（仅回答者，US-A02 / F12；已关闭问题 409）",
+        "operationId": "edit_answer_api_v1_answers__answer_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "answer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Answer Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditAnswerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/answers/{answer_id}/comments": {
       "post": {
         "tags": [
@@ -1835,6 +1893,23 @@
         ],
         "title": "ConfirmEmailVerificationRequest",
         "description": "POST /api/v1/auth/me/verify-email/confirm 请求体（F10）。"
+      },
+      "EditAnswerRequest": {
+        "properties": {
+          "body": {
+            "type": "string",
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Body"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "EditAnswerRequest",
+        "description": "PATCH /api/v1/answers/{id} 请求体（US-A02 / F12）。"
       },
       "EditQuestionRequest": {
         "properties": {

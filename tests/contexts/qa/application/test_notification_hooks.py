@@ -55,6 +55,9 @@ class FakeAnswerRepository:
     async def update(self, answer: Answer) -> None:
         self.answer = answer
 
+    async def update_body(self, answer: Answer) -> None:
+        self.answer = answer
+
 
 class FakeCommentRepository:
     async def add(self, comment: object) -> None:
