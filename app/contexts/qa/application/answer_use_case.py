@@ -27,7 +27,10 @@ class PostAnswerUseCase:
         self._notification_writer = notification_writer
 
     async def execute(self, command: PostAnswerCommand) -> Answer:
-        question = await self._question_repository.get_by_id(command.question_id)
+        # 锁问题行以与 CloseQuestionUseCase 串行化，闭环“关贴即终态”并发窗口
+        question = await self._question_repository.get_by_id(
+            command.question_id, for_update=True
+        )
         if question is None:
             raise QuestionNotFoundError("问题不存在")
         question.ensure_open("新增回答")

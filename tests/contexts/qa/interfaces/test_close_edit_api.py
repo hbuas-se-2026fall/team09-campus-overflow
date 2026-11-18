@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import func, select
 
+from app.contexts.qa.infrastructure.models import AnswerModel, CommentModel, VoteModel
+from app.contexts.reputation.infrastructure.celery_app import celery_app
+from app.contexts.reputation.infrastructure.models import ReputationLedgerModel
 from app.main import create_app
+from app.shared.engine import session_factory
 
 pytestmark = pytest.mark.integration
 
@@ -21,7 +27,14 @@ BASE_URL = "http://test"
 
 
 @pytest.fixture
-async def client(redis_cleanup: None) -> httpx.AsyncClient:
+def celery_eager() -> Any:
+    celery_app.conf.task_always_eager = True
+    yield celery_app
+    celery_app.conf.task_always_eager = False
+
+
+@pytest.fixture
+async def client(redis_cleanup: None, celery_eager: Any) -> httpx.AsyncClient:
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as c:
         yield c
@@ -343,3 +356,192 @@ async def test_concurrent_close_vs_accept_invariant(client: httpx.AsyncClient) -
         # 关闭赢：采纳必须失败，复采仍 409
         retry = await client.post(f"/api/v1/answers/{aid}/accept", headers=_auth(token))
         assert retry.status_code == 409
+
+
+# ---------------- Hardening：关贴 × 回答/投票/评论并发线性化 ----------------
+
+
+async def _gather_with_close(
+    idx: int,
+    write_coro: Any,
+    close_coro: Any,
+    *,
+    close_delay_s: float = 0.0,
+) -> tuple[httpx.Response, httpx.Response]:
+    """交替启动顺序并在需要时错峰，确保压出“写先赢”与“关先赢”两种真实线性化调度。"""
+
+    async def _delayed_close() -> httpx.Response:
+        if close_delay_s > 0:
+            await asyncio.sleep(close_delay_s)
+        return await close_coro
+
+    if idx % 2 == 0:
+        write_resp, close_resp = await asyncio.gather(write_coro, _delayed_close())
+    else:
+        close_resp, write_resp = await asyncio.gather(_delayed_close(), write_coro)
+    return write_resp, close_resp
+
+
+async def _count_rows(model: Any, column: Any, target_id: uuid.UUID) -> int:
+    async with session_factory() as session:
+        stmt = select(func.count()).select_from(model).where(column == target_id)
+        return int((await session.execute(stmt)).scalar_one())
+
+
+async def test_concurrent_post_answer_and_close_question_linearization(
+    client: httpx.AsyncClient,
+) -> None:
+    """新增回答 × 关贴并发：覆盖两种线性化顺序，绝不出现“问题已关闭却多出回答”的撕裂态。"""
+    asker_token, _ = await _register_and_login(client)
+    answerer_token, _ = await _register_and_login(client)
+    seen_write_won = False
+    seen_close_won = False
+
+    for idx in range(24):
+        qid = await _ask(client, asker_token)
+        post_resp, close_resp = await _gather_with_close(
+            idx,
+            client.post(
+                f"/api/v1/questions/{qid}/answers",
+                json={"body": f"并发回答-{idx}"},
+                headers=_auth(answerer_token),
+            ),
+            _close(client, asker_token, qid),
+        )
+        assert close_resp.status_code == 204
+        assert post_resp.status_code in (201, 409)
+
+        detail = (await client.get(f"/api/v1/questions/{qid}")).json()
+        assert detail["status"] == "closed"
+        answer_count = await _count_rows(AnswerModel, AnswerModel.question_id, uuid.UUID(qid))
+        if post_resp.status_code == 201:
+            seen_write_won = True
+            assert answer_count == 1
+            assert len(detail["answers"]) == 1
+        else:
+            seen_close_won = True
+            assert answer_count == 0
+            assert detail["answers"] == []
+
+        if seen_write_won and seen_close_won:
+            break
+
+    assert seen_write_won and seen_close_won
+
+
+@pytest.mark.parametrize("target_kind", ["question", "answer"])
+async def test_concurrent_vote_and_close_question_linearization(
+    client: httpx.AsyncClient,
+    target_kind: str,
+) -> None:
+    """投票 × 关贴并发（题票/答票）：409 时无投票落库且不触发声誉事件；204 时记票且关贴仍 204。"""
+    asker_token, asker_id = await _register_and_login(client)
+    answerer_token, answerer_id = await _register_and_login(client)
+    voter_token, _ = await _register_and_login(client)
+    target_author_id = uuid.UUID(asker_id if target_kind == "question" else answerer_id)
+    expected_ledger_count = 0
+    seen_write_won = False
+    seen_close_won = False
+
+    for idx in range(24):
+        qid = await _ask(client, asker_token)
+        if target_kind == "question":
+            target_id = uuid.UUID(qid)
+            vote_url = f"/api/v1/questions/{qid}/vote"
+        else:
+            aid = await _answer(client, answerer_token, qid)
+            target_id = uuid.UUID(aid)
+            vote_url = f"/api/v1/questions/{qid}/answers/{aid}/vote"
+
+        delay = 0.005 * (idx // 2) if (idx % 2 == 0 and not seen_write_won and idx >= 2) else 0.0
+        vote_resp, close_resp = await _gather_with_close(
+            idx,
+            client.post(vote_url, json={"direction": "up"}, headers=_auth(voter_token)),
+            _close(client, asker_token, qid),
+            close_delay_s=delay,
+        )
+        assert close_resp.status_code == 204
+        assert vote_resp.status_code in (204, 409)
+
+        detail = (await client.get(f"/api/v1/questions/{qid}")).json()
+        assert detail["status"] == "closed"
+        vote_count = await _count_rows(VoteModel, VoteModel.target_id, target_id)
+        if vote_resp.status_code == 204:
+            seen_write_won = True
+            expected_ledger_count += 1
+            assert vote_count == 1
+            if target_kind == "answer":
+                assert detail["answers"][0]["votes"] == 1
+        else:
+            seen_close_won = True
+            assert vote_count == 0
+            if target_kind == "answer":
+                assert detail["answers"][0]["votes"] == 0
+
+        ledger_count = await _count_rows(
+            ReputationLedgerModel, ReputationLedgerModel.user_id, target_author_id
+        )
+        assert ledger_count == expected_ledger_count
+
+        if seen_write_won and seen_close_won:
+            break
+
+    assert seen_write_won and seen_close_won
+
+
+@pytest.mark.parametrize("target_kind", ["question", "answer"])
+async def test_concurrent_comment_and_close_question_linearization(
+    client: httpx.AsyncClient,
+    target_kind: str,
+) -> None:
+    """评论 × 关贴并发（题评/答评）：409 时库内无新评论；201 时评论落库且关贴仍 204。"""
+    asker_token, _ = await _register_and_login(client)
+    commenter_token, _ = await _register_and_login(client)
+    seen_write_won = False
+    seen_close_won = False
+
+    for idx in range(24):
+        qid = await _ask(client, asker_token)
+        if target_kind == "question":
+            target_id = uuid.UUID(qid)
+            comment_url = f"/api/v1/questions/{qid}/comments"
+        else:
+            aid = await _answer(client, asker_token, qid)
+            target_id = uuid.UUID(aid)
+            comment_url = f"/api/v1/answers/{aid}/comments"
+
+        delay = 0.005 * (idx // 2) if (idx % 2 == 0 and not seen_write_won and idx >= 2) else 0.0
+        comment_resp, close_resp = await _gather_with_close(
+            idx,
+            client.post(
+                comment_url,
+                json={"body": f"并发评论-{idx}"},
+                headers=_auth(commenter_token),
+            ),
+            _close(client, asker_token, qid),
+            close_delay_s=delay,
+        )
+        assert close_resp.status_code == 204
+        assert comment_resp.status_code in (201, 409)
+
+        detail = (await client.get(f"/api/v1/questions/{qid}")).json()
+        assert detail["status"] == "closed"
+        comments = (
+            detail["comments"]
+            if target_kind == "question"
+            else detail["answers"][0]["comments"]
+        )
+        comment_count = await _count_rows(CommentModel, CommentModel.target_id, target_id)
+        if comment_resp.status_code == 201:
+            seen_write_won = True
+            assert comment_count == 1
+            assert len(comments) == 1
+        else:
+            seen_close_won = True
+            assert comment_count == 0
+            assert comments == []
+
+        if seen_write_won and seen_close_won:
+            break
+
+    assert seen_write_won and seen_close_won

@@ -39,7 +39,9 @@ class CreateCommentUseCase:
 
     async def execute(self, command: CreateCommentCommand) -> Comment:
         if command.target_type is CommentTarget.QUESTION:
-            question = await self._question_repository.get_by_id(command.target_id)
+            question = await self._question_repository.get_by_id(
+                command.target_id, for_update=True
+            )
             if question is None:
                 raise QuestionNotFoundError("问题不存在")
             question.ensure_open("评论")
@@ -49,7 +51,10 @@ class CreateCommentUseCase:
             answer = await self._answer_repository.get_by_id(command.target_id)
             if answer is None:
                 raise AnswerNotFoundError("回答不存在")
-            parent = await self._question_repository.get_by_id(answer.question_id)
+            # 统一锁序“先无锁读 Answer，再锁父 Question”，与关闭/采纳/编辑回答一致无环
+            parent = await self._question_repository.get_by_id(
+                answer.question_id, for_update=True
+            )
             if parent is not None:
                 parent.ensure_open("对回答评论")
             host_author_id = answer.author_id

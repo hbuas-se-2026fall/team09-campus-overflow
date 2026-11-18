@@ -37,8 +37,10 @@
 ### 已知边界与后续项（不阻塞 F12）
 
 1. **同会话读旧缓存（潜伏）**：`update_body()` 使用 `synchronize_session=False`，而 `SqlAlchemyAnswerRepository.get_by_id()` 当前未带 `populate_existing=True`；每请求独立 `AsyncSession` 下不触发，若后续出现同一会话内“先 `update_body` 再 `get_by_id`”的场景，单开 hardening 提交补齐 `populate_existing=True` 与回归测试。
+   - **Hardening 收口注记（2026-11-18，`fix/qa-close-lock-hardening`）**：已于 `app/contexts/qa/infrastructure/answer_repository.py` 的 `SqlAlchemyAnswerRepository.get_by_id()` 补齐 `.execution_options(populate_existing=True)`，并在 `tests/contexts/qa/infrastructure/test_edit_answer_repository.py` 补齐同会话预加载 `AnswerModel` 后 `update_body()` 再回读刷新的回归验证（先红后绿）。
 2. **并发瞬时快照**：PATCH 响应中的 `votes`/`is_accepted` 为加锁前读取快照，同瞬间并发投票/采纳时响应可能短暂滞后，数据库写入本身不受影响且不会覆盖 `is_accepted`（已写入 `api-contract-notes.md`）。
 3. **存量写路径关闭竞态（非 F12 引入）**：`VoteOnUseCase`、`PostAnswerUseCase`、`CreateCommentUseCase` 校验 `question.ensure_open()` 时未对问题行加 `for_update=True`，极高并发关贴窗口存在既有竞态，留待独立 hardening 收口。
+   - **Hardening 收口注记（2026-11-18，`fix/qa-close-lock-hardening`）**：`PostAnswerUseCase`、`VoteOnUseCase`（题票/答票）、`CreateCommentUseCase`（题评/答评）已统一按“先无锁读 `Answer`（若目标为回答）→ `QuestionRepository.get_by_id(..., for_update=True)` 锁问题行 → `ensure_open()` → 写子表”加锁（与 `close`/`accept`/`edit_answer` 锁序一致、全图无环）。**设计权衡**：同一问题的回答/投票/评论写入会在数据库事务内因 `FOR UPDATE` 串行化，课程规模并发下可接受，属于**以同题写串行化换取“关贴即终态”正确性**的明确 trade-off。已在 `tests/contexts/qa/interfaces/test_close_edit_api.py` 补齐 3 组 5 路径 `asyncio.gather` 双线性化顺序并发实证（覆盖写先赢 201/204 + 关 204，以及关先赢 204 + 写 409 且库内无新行/不触发声誉事件），并通过全量门禁（`ruff` 0 / `mypy` 144 文件 0 / `--check` 一致 / 单测 346 passed，TOTAL 83.45%，domain 94% / 集成 205 passed）。
 
 ## 三、门禁实测（2026-11-18）
 

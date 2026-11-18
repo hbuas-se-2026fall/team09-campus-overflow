@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.contexts.identity.application.commands import RegisterCommand
 from app.contexts.identity.application.register_use_case import RegisterUseCase
@@ -14,6 +15,7 @@ from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.errors import AnswerNotFoundError, QuestionClosedError
 from app.contexts.qa.domain.question import Question
 from app.contexts.qa.infrastructure.answer_repository import SqlAlchemyAnswerRepository
+from app.contexts.qa.infrastructure.models import AnswerModel
 from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
 from app.shared.engine import session_factory
 
@@ -84,3 +86,34 @@ async def test_update_body_db_guard_rejects_closed_question_and_missing_answer()
         missing = Answer.post(question_id=q.id, author_id=author_id, body_value="不存在")
         with pytest.raises(AnswerNotFoundError):
             await SqlAlchemyAnswerRepository(session).update_body(missing)
+
+
+async def test_get_by_id_refreshes_identity_map_after_same_session_update_body() -> None:
+    """同一 AsyncSession 内若 AnswerModel 已在 identity map，update_body 后回读须刷新新值。"""
+    asker_id = await _create_user()
+    author_id = await _create_user()
+
+    async with session_factory() as session:
+        q = Question.ask(title_value="问题", body_value="正文", author_id=asker_id)
+        await SqlAlchemyQuestionRepository(session).add(q)
+        a = Answer.post(question_id=q.id, author_id=author_id, body_value="同会话旧正文")
+        await SqlAlchemyAnswerRepository(session).add(a)
+        await session.commit()
+
+    async with session_factory() as session:
+        # 模拟同一会话内先前已加载 AnswerModel 且仍被引用在 identity map 中
+        preloaded = (
+            await session.execute(select(AnswerModel).where(AnswerModel.id == a.id))
+        ).scalar_one()
+        assert preloaded.body == "同会话旧正文"
+
+        repo = SqlAlchemyAnswerRepository(session)
+        a.edit_body(body_value="同会话新正文")
+        await repo.update_body(a)
+
+        # commit 前同一会话内调用 get_by_id：未加 populate_existing=True 会读到 preloaded 旧值
+        refreshed = await repo.get_by_id(a.id)
+        assert refreshed is not None
+        assert refreshed.body.value == "同会话新正文"
+        assert preloaded.body == "同会话新正文"
+        await session.commit()
