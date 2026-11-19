@@ -1,0 +1,14 @@
+.admin-workspace { border-color: #e8ecf3; }
+.admin-filters { display: flex; flex-wrap: wrap; gap: 12px; }
+.admin-filters .ant-input-affix-wrapper { flex: 1; min-width: 200px; }
+.admin-filters .ant-select { min-width: 120px; }
+.admin-question-cell { display: flex; flex-direction: column; gap: 8px; }
+.admin-title-button.ant-btn { height: auto; padding: 0; text-align: left; white-space: normal; }
+.admin-drawer-content { width: 100%; }
+.admin-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .admin-workspace > .ant-card-body { padding: 16px; }
+  .admin-filters .ant-input-affix-wrapper { flex-basis: 100%; }
+  .admin-filters .ant-select { flex: 1; }
+  .admin-page .ant-statistic-content { font-size: 26px; }
+}

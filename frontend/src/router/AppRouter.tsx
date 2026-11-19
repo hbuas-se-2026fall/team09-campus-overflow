@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { isAdminPreview } from '../admin/mode'
 
 const AppShell = lazy(() => import('../components/AppShell').then(({ AppShell: component }) => ({ default: component })))
 const LoginPage = lazy(() => import('../pages/LoginPage').then(({ LoginPage: component }) => ({ default: component })))
@@ -10,6 +11,10 @@ const QuestionsPage = lazy(() => import('../pages/QuestionsPage').then(({ Questi
 const RegisterPage = lazy(() => import('../pages/RegisterPage').then(({ RegisterPage: component }) => ({ default: component })))
 const ReputationPage = lazy(() => import('../pages/ReputationPage').then(({ ReputationPage: component }) => ({ default: component })))
 const TagsPage = lazy(() => import('../pages/TagsPage').then(({ TagsPage: component }) => ({ default: component })))
+const AdminEntryPage = lazy(() => import('../pages/AdminEntryPage').then(({ AdminEntryPage: component }) => ({ default: component })))
+const AdminPreviewPage = isAdminPreview
+  ? lazy(() => import('../pages/AdminPreviewPage').then(({ AdminPreviewPage: component }) => ({ default: component })))
+  : null
 
 function PageLoading() {
   return <div className="page-loading" role="status">正在加载页面...</div>
@@ -31,6 +36,8 @@ export function AppRouter() {
             <Route index element={<Navigate to="/questions" replace />} />
             <Route path="/questions" element={<QuestionsPage />} />
             <Route path="/tags" element={<TagsPage />} />
+            <Route path="/admin" element={<ProtectedRoute><AdminEntryPage /></ProtectedRoute>} />
+            {AdminPreviewPage && <Route path="/admin/preview" element={<AdminPreviewPage />} />}
             <Route path="/reputation" element={<ProtectedRoute><ReputationPage /></ProtectedRoute>} />
             <Route path="/questions/:questionId" element={<QuestionDetailPage />} />
             <Route

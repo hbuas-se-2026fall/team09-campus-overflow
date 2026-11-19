@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:admin": "vite --mode admin-preview",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "oxlint",
