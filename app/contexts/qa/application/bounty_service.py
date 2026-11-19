@@ -66,8 +66,8 @@ class BountyService:
         )
         return True
 
-    async def refund_on_close(self, question_id: UUID) -> bool:
-        """关闭且未采纳时全额退款；条件更新保证只退一次。"""
+    async def _refund(self, question_id: UUID, *, reason: str) -> bool:
+        """未采纳开放悬赏全额退款共用实现；条件更新保证并发下只退一次。"""
         bounty = await self._bounties.refund(question_id)
         if bounty is None:
             return False
@@ -79,8 +79,16 @@ class BountyService:
                 source="bounty_refund",
                 event_id=bounty.id,
                 delta=bounty.amount,
-                reason="悬赏退款",
+                reason=reason,
                 occurred_at=now,
             ),
         )
         return True
+
+    async def refund_on_close(self, question_id: UUID) -> bool:
+        """关闭且未采纳时全额退款；条件更新保证只退一次。"""
+        return await self._refund(question_id, reason="悬赏退款")
+
+    async def refund_on_delete(self, question_id: UUID) -> bool:
+        """软删除且存在开放悬赏时全额退款；条件更新保证只退一次（F13 D3）。"""
+        return await self._refund(question_id, reason="悬赏退款")

@@ -68,12 +68,17 @@ class VoteOnUseCase:
         answer = await self._answer_repository.get_by_id(target_id)
         if answer is None:
             raise AnswerNotFoundError("回答不存在")
-        # 统一锁序“先无锁读 Answer，再锁父 Question”，与关闭/采纳/编辑回答一致无环
+        # 统一锁序“先无锁读 Answer，再锁父 Question”，与关闭/采纳/编辑/删除回答一致无环
         parent = await self._question_repository.get_by_id(
             answer.question_id, for_update=True
         )
-        if parent is not None:
-            parent.ensure_open("对回答投票")
+        if parent is None:
+            raise QuestionNotFoundError("问题不存在")
+        # 拿到父问题锁后重读 Answer，闭环并发软删回答窗口（F13 D4）
+        answer = await self._answer_repository.get_by_id(target_id)
+        if answer is None:
+            raise AnswerNotFoundError("回答不存在")
+        parent.ensure_open("对回答投票")
         return answer.author_id
 
     async def execute(self, command: VoteOnCommand) -> VoteOutcome:

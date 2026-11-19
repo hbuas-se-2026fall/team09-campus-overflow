@@ -40,10 +40,24 @@ class FakeQuestionRepository:
         self.updated.append(question)
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
         self.for_update_calls.append((question_id, for_update))
-        return next((q for q in self.added if q.id == question_id), None)
+        return next(
+            (
+                q
+                for q in self.added
+                if q.id == question_id and (include_deleted or not q.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         return []
@@ -68,8 +82,20 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         self.updated.append(answer)
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        return next((a for a in self.added if a.id == answer_id), None)
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        return next(
+            (
+                a
+                for a in self.added
+                if a.id == answer_id and (include_deleted or not a.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
         return [a for a in self.added if a.question_id == question_id]
@@ -291,3 +317,69 @@ def test_comment_write_rejects_invalid_target_type() -> None:
             author_id=uuid4(),
             body_value="正文",
         )
+
+
+async def test_comment_on_answer_missing_parent_question_raises_404() -> None:
+    """F13 D4：父问题已软删除时，对回答评论必须抛 QuestionNotFoundError，严禁静默落评论。"""
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    answer = _answer(uuid4())
+    a_repo.added = [answer]
+
+    with pytest.raises(QuestionNotFoundError):
+        await CreateCommentUseCase(q_repo, a_repo, c_repo).execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.ANSWER,
+                target_id=answer.id,
+                body="针对可见性映射（Visibility Map）的补充说明",
+                author_id=uuid4(),
+            )
+        )
+    assert c_repo.added == []
+
+
+async def test_comment_and_accept_reread_answer_after_parent_lock() -> None:
+    """F13 D4：拿到父问题行锁后重读 Answer，若回答已被并发软删则一律抛 AnswerNotFoundError。"""
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    question = _question()
+    answer = _answer(question.id)
+    q_repo.added = [question]
+    a_repo.added = [answer]
+
+    orig_q_get = q_repo.get_by_id
+
+    async def _delete_answer_during_lock(
+        question_id: UUID, *, for_update: bool = False, include_deleted: bool = False
+    ) -> Question | None:
+        answer.soft_delete()
+        return await orig_q_get(
+            question_id, for_update=for_update, include_deleted=include_deleted
+        )
+
+    q_repo.get_by_id = _delete_answer_during_lock  # type: ignore[method-assign]
+
+    with pytest.raises(AnswerNotFoundError):
+        await CreateCommentUseCase(q_repo, a_repo, c_repo).execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.ANSWER,
+                target_id=answer.id,
+                body="并发窗口内的评论",
+                author_id=uuid4(),
+            )
+        )
+    assert c_repo.added == []
+
+    # 恢复回答活跃态，验证 AcceptAnswerUseCase 同款锁后重读
+    answer.deleted_at = None
+    with pytest.raises(AnswerNotFoundError):
+        await AcceptAnswerUseCase(q_repo, a_repo).execute(
+            AcceptAnswerCommand(answer_id=answer.id, actor_id=question.author_id)
+        )
+    assert a_repo.updated == [] and q_repo.updated == []

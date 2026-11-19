@@ -44,6 +44,7 @@ class FakeQuestionRepository:
     def __init__(self) -> None:
         self.added: list[Question] = []
         self.updated: list[Question] = []
+        self.for_update_calls: list[tuple[UUID, bool]] = []
 
     async def add(self, question: Question) -> None:
         self.added.append(question)
@@ -52,9 +53,24 @@ class FakeQuestionRepository:
         self.updated.append(question)
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
-        return next((q for q in self.added if q.id == question_id), None)
+        self.for_update_calls.append((question_id, for_update))
+        return next(
+            (
+                q
+                for q in self.added
+                if q.id == question_id and (include_deleted or not q.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         return []
@@ -79,8 +95,20 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         self.updated.append(answer)
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        return next((a for a in self.added if a.id == answer_id), None)
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        return next(
+            (
+                a
+                for a in self.added
+                if a.id == answer_id and (include_deleted or not a.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
         return [a for a in self.added if a.question_id == question_id]
@@ -227,6 +255,7 @@ async def test_edit_full_update() -> None:
     assert result.title.value == "新标题"
     assert result.body.value == "新正文"
     assert q_repo.updated == [question]
+    assert q_repo.for_update_calls == [(question.id, True)]
 
 
 async def test_edit_partial_title_only_keeps_body() -> None:

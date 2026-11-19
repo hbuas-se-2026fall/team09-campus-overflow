@@ -11,7 +11,12 @@ from app.contexts.identity.interfaces.api.deps import (
     UserSummaryReaderDep,
 )
 from app.contexts.qa.application.accept_use_case import AcceptAnswerUseCase
-from app.contexts.qa.application.commands import AcceptAnswerCommand, EditAnswerCommand
+from app.contexts.qa.application.commands import (
+    AcceptAnswerCommand,
+    DeleteAnswerCommand,
+    EditAnswerCommand,
+)
+from app.contexts.qa.application.delete_answer_use_case import DeleteAnswerUseCase
 from app.contexts.qa.application.edit_answer_use_case import EditAnswerUseCase
 from app.contexts.qa.domain.answer import AnswerAccepted
 from app.contexts.qa.domain.comment import CommentTarget
@@ -75,6 +80,23 @@ async def edit_answer(
             for c in answer_comments
         ],
     )
+
+
+@answers_router.delete(
+    "/{answer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="软删除回答（仅回答者；父问题活跃时作者重复删幂等 204；已采纳 409）",
+)
+async def delete_answer(
+    answer_id: UUID,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+) -> Response:
+    await DeleteAnswerUseCase(questions, answers).execute(
+        DeleteAnswerCommand(answer_id=answer_id, actor_id=user.id)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @answers_router.post(

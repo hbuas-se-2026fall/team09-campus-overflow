@@ -111,7 +111,7 @@ class TestContractCompleteness:
             if method in _METHODS
         ]
         assert len(paths) == 31, f"paths 数量漂移：期望 31，实际 {len(paths)}"
-        assert len(operations) == 34, f"operations 数量漂移：期望 34，实际 {len(operations)}"
+        assert len(operations) == 36, f"operations 数量漂移：期望 36，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [

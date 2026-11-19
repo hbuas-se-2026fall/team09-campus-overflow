@@ -17,9 +17,11 @@ from app.contexts.qa.application.close_question_use_case import CloseQuestionUse
 from app.contexts.qa.application.commands import (
     AskQuestionCommand,
     CloseQuestionCommand,
+    DeleteQuestionCommand,
     EditQuestionCommand,
     PostAnswerCommand,
 )
+from app.contexts.qa.application.delete_question_use_case import DeleteQuestionUseCase
 from app.contexts.qa.application.edit_question_use_case import EditQuestionUseCase
 from app.contexts.qa.application.get_question_use_case import GetQuestionUseCase
 from app.contexts.qa.application.list_questions_use_case import ListQuestionsUseCase
@@ -307,6 +309,23 @@ async def close_question(
 ) -> Response:
     use_case = CloseQuestionUseCase(questions, bounty_service)
     await use_case.execute(CloseQuestionCommand(question_id=question_id, actor_id=user.id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/{question_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="软删除问题（仅提问者；作者重复删幂等 204；已采纳 409；联动退还开放悬赏）",
+)
+async def delete_question(
+    question_id: UUID,
+    user: CurrentUser,
+    questions: QuestionRepo,
+    bounty_service: BountyServiceDep,
+) -> Response:
+    await DeleteQuestionUseCase(questions, bounty_service).execute(
+        DeleteQuestionCommand(question_id=question_id, actor_id=user.id)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

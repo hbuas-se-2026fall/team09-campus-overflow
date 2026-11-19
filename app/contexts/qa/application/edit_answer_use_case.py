@@ -39,6 +39,10 @@ class EditAnswerUseCase:
         )
         if question is None:
             raise QuestionNotFoundError("问题不存在")
+        # 拿到父问题锁后重读 Answer，闭环并发软删回答窗口（F13 D4）
+        answer = await self._answer_repository.get_by_id(command.answer_id)
+        if answer is None:
+            raise AnswerNotFoundError("回答不存在")
         question.ensure_open("编辑回答")
         answer.edit_body(body_value=command.body)
         await self._answer_repository.update_body(answer)

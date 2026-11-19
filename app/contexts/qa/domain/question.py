@@ -6,6 +6,7 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 from app.contexts.qa.domain.errors import (
+    AcceptedAnswerCannotDeleteError,
     AnswerAlreadyAcceptedError,
     QuestionAlreadyClosedError,
     QuestionClosedError,
@@ -61,6 +62,26 @@ class Question:
     events: list[QuestionPublished | QuestionClosed] = field(
         default_factory=list, repr=False, compare=False
     )
+    deleted_at: datetime | None = None
+
+    @property
+    def is_deleted(self) -> bool:
+        """是否已软删除（F13）。"""
+        return self.deleted_at is not None
+
+    def soft_delete(self, *, at: datetime | None = None) -> bool:
+        """软删除问题（F13，D1–D3）。
+
+        - 已删除时保持原 deleted_at 不变并返回 False（作者重复删幂等）；
+        - 已有采纳答案时拒绝删除（AcceptedAnswerCannotDeleteError → 409）；
+        - 允许删除已关闭问题（内容回收例外，不调用 ensure_open）。
+        """
+        if self.is_deleted:
+            return False
+        if self.accepted_answer_id is not None:
+            raise AcceptedAnswerCannotDeleteError("该问题已有采纳答案，不可删除")
+        self.deleted_at = at if at is not None else datetime.now(UTC)
+        return True
 
     def mark_accepted(self, answer_id: UUID) -> None:
         """记录采纳答案引用（US-V03 跨聚合双写的本侧；幂等检查在应用层）。"""

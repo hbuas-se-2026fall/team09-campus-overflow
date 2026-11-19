@@ -33,10 +33,24 @@ class FakeQuestionRepository:
         self.added.append(question)
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
         self.for_update_calls.append((question_id, for_update))
-        return next((q for q in self.added if q.id == question_id), None)
+        return next(
+            (
+                q
+                for q in self.added
+                if q.id == question_id and (include_deleted or not q.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, question_id: UUID, deleted_at: object) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         return []
@@ -60,8 +74,20 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         return None
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        return next((a for a in self.added if a.id == answer_id), None)
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        return next(
+            (
+                a
+                for a in self.added
+                if a.id == answer_id and (include_deleted or not a.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: object) -> bool:
+        return False
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
         return [a for a in self.added if a.question_id == question_id]
@@ -265,3 +291,69 @@ async def test_revote_raises_already_voted_and_persists_nothing() -> None:
             )
         )
     assert len(v_repo.added) == 1  # 未追加新票
+
+
+async def test_vote_on_answer_missing_parent_question_raises_404() -> None:
+    """F13 D4：父问题已软删除或不存在时，对回答投票必须抛 QuestionNotFoundError，严禁静默跳过。"""
+    from datetime import UTC, datetime
+
+    q_repo, a_repo, v_repo = FakeQuestionRepository(), FakeAnswerRepository(), FakeVoteRepository()
+    answer = Answer(
+        id=uuid4(),
+        question_id=uuid4(),
+        author_id=uuid4(),
+        body=Body("PostgreSQL HOT 更新需要新旧版本落在同一 heap page。"),
+        created_at=datetime.now(UTC),
+    )
+    a_repo.added = [answer]
+
+    with pytest.raises(QuestionNotFoundError):
+        await VoteOnUseCase(q_repo, a_repo, v_repo).execute(
+            VoteOnCommand(
+                target_type=VoteTarget.ANSWER,
+                target_id=answer.id,
+                direction=VoteDirection.UP,
+                user_id=uuid4(),
+            )
+        )
+    assert v_repo.added == []
+
+
+async def test_vote_on_answer_deleted_before_parent_lock_acquired_raises_404() -> None:
+    """F13 D4：锁到父问题后重读 Answer 若已被并发软删，必须抛 AnswerNotFoundError（404）。"""
+    from datetime import UTC, datetime
+
+    q_repo, a_repo, v_repo = FakeQuestionRepository(), FakeAnswerRepository(), FakeVoteRepository()
+    question = _question()
+    answer = Answer(
+        id=uuid4(),
+        question_id=question.id,
+        author_id=uuid4(),
+        body=Body("B-Tree bottom-up 索引删除可在页面分裂前回收死索引项。"),
+        created_at=datetime.now(UTC),
+    )
+    q_repo.added = [question]
+    a_repo.added = [answer]
+
+    orig_q_get = q_repo.get_by_id
+
+    async def _lock_question_after_concurrent_answer_delete(
+        question_id: UUID, *, for_update: bool = False, include_deleted: bool = False
+    ) -> Question | None:
+        answer.soft_delete()
+        return await orig_q_get(
+            question_id, for_update=for_update, include_deleted=include_deleted
+        )
+
+    q_repo.get_by_id = _lock_question_after_concurrent_answer_delete  # type: ignore[method-assign]
+
+    with pytest.raises(AnswerNotFoundError):
+        await VoteOnUseCase(q_repo, a_repo, v_repo).execute(
+            VoteOnCommand(
+                target_type=VoteTarget.ANSWER,
+                target_id=answer.id,
+                direction=VoteDirection.UP,
+                user_id=uuid4(),
+            )
+        )
+    assert v_repo.added == []

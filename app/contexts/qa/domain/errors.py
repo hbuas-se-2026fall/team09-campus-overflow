@@ -49,3 +49,7 @@ class InsufficientPointsError(QADomainError):
 
 class BountyAlreadyActiveError(QADomainError):
     """同一问题已有进行中的悬赏（F07，D13：部分唯一索引兜底，路由层转 409）。"""
+
+
+class AcceptedAnswerCannotDeleteError(QADomainError):
+    """已采纳内容不可删除（F13，D2：问题已有采纳答案或回答已被采纳均不可删除，路由层转 409）。"""
