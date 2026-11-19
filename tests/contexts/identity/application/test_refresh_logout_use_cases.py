@@ -39,7 +39,7 @@ class FakeUserRepository:
         self._user = user
         self.reads = 0
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
+    async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
         self.reads += 1
         return self._user
 
@@ -50,7 +50,7 @@ class FailingUserRepository:
     def __init__(self, error: Exception) -> None:
         self._error = error
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
+    async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
         raise self._error
 
 

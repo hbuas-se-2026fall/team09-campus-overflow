@@ -14,5 +14,14 @@ export const authApi = {
   logout(refreshToken: string) {
     return apiClient.post<void>('/v1/auth/logout', { refresh_token: refreshToken })
   },
+  updateProfile(payload: { nickname?: string | null; college?: string | null; class_name?: string | null }) {
+    return apiClient.patch<AuthUserResponse>('/v1/auth/me/profile', payload).then(({ data }) => data)
+  },
+  sendEmailVerification() {
+    return apiClient.post<void>('/v1/auth/me/verify-email/send')
+  },
+  confirmEmailVerification(code: string) {
+    return apiClient.post<void>('/v1/auth/me/verify-email/confirm', { code })
+  },
 }
 

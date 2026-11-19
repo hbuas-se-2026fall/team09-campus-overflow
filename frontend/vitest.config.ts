@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    testTimeout: 20000,
+    fileParallelism: false,
     include: ['src/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',

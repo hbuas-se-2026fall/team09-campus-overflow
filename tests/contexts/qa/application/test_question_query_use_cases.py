@@ -11,11 +11,18 @@ from uuid import UUID, uuid4
 
 from app.contexts.qa.application.get_question_use_case import GetQuestionUseCase
 from app.contexts.qa.application.list_questions_use_case import ListQuestionsUseCase
-from app.contexts.qa.application.queries import GetQuestionQuery, ListQuestionsQuery
+from app.contexts.qa.application.list_related_questions_use_case import (
+    ListRelatedQuestionsUseCase,
+)
+from app.contexts.qa.application.queries import (
+    GetQuestionQuery,
+    ListQuestionsQuery,
+    ListRelatedQuestionsQuery,
+)
 from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.value_objects import Body, Title
 
 
@@ -24,6 +31,9 @@ class FakeQuestionRepository:
 
     def __init__(self) -> None:
         self.added: list[Question] = []
+        self.last_filters: QuestionFilter | None = None
+        self.related: list[Question] = []
+        self.last_related: tuple[UUID, int] | None = None
 
     async def add(self, question: Question) -> None:
         self.added.append(question)
@@ -31,12 +41,23 @@ class FakeQuestionRepository:
     async def update(self, question: Question) -> None:
         return None
 
-    async def get_by_id(self, question_id: UUID) -> Question | None:
+    async def get_by_id(
+        self, question_id: UUID, *, for_update: bool = False
+    ) -> Question | None:
         return next((q for q in self.added if q.id == question_id), None)
 
+    async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
+        self.last_related = (question_id, limit)
+        return self.related[:limit]
+
     async def list_paginated(
-        self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
+        self,
+        page: int,
+        page_size: int,
+        sort: QuestionSort = QuestionSort.LATEST,
+        filters: QuestionFilter | None = None,
     ) -> tuple[list[Question], int]:
+        self.last_filters = filters
         ordered = sorted(self.added, key=lambda q: (q.created_at, q.id), reverse=True)
         start = (page - 1) * page_size
         return ordered[start : start + page_size], len(self.added)
@@ -52,6 +73,9 @@ class FakeAnswerRepository:
         self.added.append(answer)
 
     async def update(self, answer: Answer) -> None:
+        return None
+
+    async def update_body(self, answer: Answer) -> None:
         return None
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
@@ -149,6 +173,16 @@ async def test_total_pages_zero_when_empty() -> None:
     assert result.total_pages == 0  # 空库契约（2.8 openapi）
 
 
+async def test_list_passes_filters_to_repository() -> None:
+    """F01：用例只透传筛选对象，不自行解释条件。"""
+    repo = FakeQuestionRepository()
+    filters = QuestionFilter(tags=("React",))
+    await ListQuestionsUseCase(repo).execute(
+        ListQuestionsQuery(page=1, page_size=20, filters=filters)
+    )
+    assert repo.last_filters is filters
+
+
 async def test_get_question_returns_detail_view_or_none() -> None:
     repo = FakeQuestionRepository()
     answers = FakeAnswerRepository()
@@ -213,3 +247,28 @@ async def test_detail_answers_ordered_by_d2() -> None:
     # 采纳票（votes=1）恒最前，压过高票未采纳（votes=5）——1.3 功能域 8 场景
     assert ordered[0].is_accepted is True
     assert [a.votes_count for a in ordered] == [1, 5, 1, -2]
+
+
+async def test_list_related_passes_query_to_repository() -> None:
+    """F03：只读用例把 question_id/limit 原样交给仓储，不自行排序。"""
+    repo = FakeQuestionRepository()
+    source = _question(datetime(2026, 2, 1, tzinfo=UTC))
+    candidate = _question(datetime(2026, 2, 2, tzinfo=UTC))
+    repo.added = [source]
+    repo.related = [candidate]
+
+    result = await ListRelatedQuestionsUseCase(repo).execute(
+        ListRelatedQuestionsQuery(question_id=source.id, limit=3)
+    )
+    assert result == [candidate]
+    assert repo.last_related == (source.id, 3)
+
+
+async def test_list_related_missing_question_returns_none() -> None:
+    """F03：问题不存在返回 None（路由转 404），不触发相关查询。"""
+    repo = FakeQuestionRepository()
+    result = await ListRelatedQuestionsUseCase(repo).execute(
+        ListRelatedQuestionsQuery(question_id=uuid4())
+    )
+    assert result is None
+    assert repo.last_related is None

@@ -27,12 +27,19 @@ from app.contexts.qa.domain.vote import Vote, VoteDirection, VoteTarget
 class FakeQuestionRepository:
     def __init__(self) -> None:
         self.added: list[Question] = []
+        self.for_update_calls: list[tuple[UUID, bool]] = []
 
     async def add(self, question: Question) -> None:
         self.added.append(question)
 
-    async def get_by_id(self, question_id: UUID) -> Question | None:
+    async def get_by_id(
+        self, question_id: UUID, *, for_update: bool = False
+    ) -> Question | None:
+        self.for_update_calls.append((question_id, for_update))
         return next((q for q in self.added if q.id == question_id), None)
+
+    async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
+        return []
 
     async def list_paginated(
         self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
@@ -46,6 +53,12 @@ class FakeAnswerRepository:
 
     async def add(self, answer: Answer) -> None:
         self.added.append(answer)
+
+    async def update(self, answer: Answer) -> None:
+        return None
+
+    async def update_body(self, answer: Answer) -> None:
+        return None
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
         return next((a for a in self.added if a.id == answer_id), None)
@@ -101,6 +114,7 @@ async def test_post_answer_persists_with_command_fields() -> None:
     assert result.author_id == author
     assert result.body.value == "回答正文"  # 值对象已规范化
     assert result.is_accepted is False
+    assert q_repo.for_update_calls == [(question.id, True)]
 
 
 async def test_post_answer_missing_question_raises_404_semantics() -> None:
@@ -166,6 +180,37 @@ async def test_vote_on_question_casts_vote_and_emits_event() -> None:
     assert outcome.event.target_id == question.id
     assert outcome.event.user_id == user
     assert outcome.event.direction is VoteDirection.UP
+    assert q_repo.for_update_calls == [(question.id, True)]
+
+
+async def test_vote_on_answer_locks_parent_question() -> None:
+    from datetime import UTC, datetime
+
+    q_repo, a_repo, v_repo = FakeQuestionRepository(), FakeAnswerRepository(), FakeVoteRepository()
+    question = _question()
+    answer = Answer(
+        id=uuid4(),
+        question_id=question.id,
+        author_id=uuid4(),
+        body=Body("回答"),
+        created_at=datetime.now(UTC),
+    )
+    q_repo.added = [question]
+    a_repo.added = [answer]
+    user = uuid4()
+
+    outcome = await VoteOnUseCase(q_repo, a_repo, v_repo).execute(
+        VoteOnCommand(
+            target_type=VoteTarget.ANSWER,
+            target_id=answer.id,
+            direction=VoteDirection.UP,
+            user_id=user,
+        )
+    )
+
+    assert v_repo.added == [outcome.vote]
+    assert outcome.event.target_author_id == answer.author_id
+    assert q_repo.for_update_calls == [(question.id, True)]
 
 
 async def test_vote_on_missing_question_raises_404() -> None:

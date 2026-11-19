@@ -33,7 +33,7 @@ export function LoginPage() {
         studentId: user.student_id,
         staffId: user.staff_id,
         createdAt: user.created_at,
-        displayName: user.student_id ?? user.staff_id ?? user.email,
+        displayName: user.nickname ?? user.student_id ?? user.staff_id ?? user.email,
         role: user.role,
       })
       navigate(from, { replace: true })

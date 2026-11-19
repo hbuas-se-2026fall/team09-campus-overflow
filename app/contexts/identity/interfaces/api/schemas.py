@@ -40,14 +40,68 @@ class RegisterRequest(BaseModel):
 
 
 class RegisterResponse(BaseModel):
-    """注册响应：绝不包含密码任何形态。"""
+    """注册/当前用户响应：绝不包含密码任何形态。"""
 
     id: UUID
     role: str
     email: str
     student_id: str | None
     staff_id: str | None
+    nickname: str | None = None
+    college: str | None = None
+    class_name: str | None = None
+    email_verified: bool = False
     created_at: datetime
+
+
+class PublicUserProfileResponse(BaseModel):
+    """GET /api/v1/users/{user_id}/profile 公开名片响应（F11 最小披露）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    role: str
+    display_name: str
+    nickname: str | None = None
+    college: str | None = None
+    class_name: str | None = None
+
+
+class UpdateProfileRequest(BaseModel):
+    """PATCH /api/v1/auth/me/profile 请求体（F10）：空 body 422；显式 null 清空。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    nickname: str | None = Field(default=None, min_length=1, max_length=30)
+    college: str | None = Field(default=None, min_length=1, max_length=64)
+    class_name: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("nickname", "college", "class_name")
+    @classmethod
+    def _reject_unsafe_chars(cls, value: str | None) -> str | None:
+        if value is not None:
+            reject_unsafe_text(value, field_name="个人资料")
+        return value
+
+    @model_validator(mode="after")
+    def _require_any_field(self) -> UpdateProfileRequest:
+        if not self.model_fields_set:
+            raise DomainValidationError("至少提供一项资料字段")
+        return self
+
+
+class ConfirmEmailVerificationRequest(BaseModel):
+    """POST /api/v1/auth/me/verify-email/confirm 请求体（F10）。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    code: str = Field(min_length=6, max_length=6)
+
+    @field_validator("code")
+    @classmethod
+    def _reject_unsafe_chars(cls, value: str) -> str:
+        reject_unsafe_text(value, field_name="验证码")
+        return value
 
 
 class LoginRequest(BaseModel):

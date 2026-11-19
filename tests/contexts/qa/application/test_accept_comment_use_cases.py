@@ -31,6 +31,7 @@ class FakeQuestionRepository:
     def __init__(self) -> None:
         self.added: list[Question] = []
         self.updated: list[Question] = []
+        self.for_update_calls: list[tuple[UUID, bool]] = []
 
     async def add(self, question: Question) -> None:
         self.added.append(question)
@@ -38,8 +39,14 @@ class FakeQuestionRepository:
     async def update(self, question: Question) -> None:
         self.updated.append(question)
 
-    async def get_by_id(self, question_id: UUID) -> Question | None:
+    async def get_by_id(
+        self, question_id: UUID, *, for_update: bool = False
+    ) -> Question | None:
+        self.for_update_calls.append((question_id, for_update))
         return next((q for q in self.added if q.id == question_id), None)
+
+    async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
+        return []
 
     async def list_paginated(
         self, page: int, page_size: int, sort: QuestionSort = QuestionSort.LATEST
@@ -56,6 +63,9 @@ class FakeAnswerRepository:
         self.added.append(answer)
 
     async def update(self, answer: Answer) -> None:
+        self.updated.append(answer)
+
+    async def update_body(self, answer: Answer) -> None:
         self.updated.append(answer)
 
     async def get_by_id(self, answer_id: UUID) -> Answer | None:
@@ -196,6 +206,7 @@ async def test_comment_on_question_persists_and_emits() -> None:
     assert comment.author_id == author
     assert len(comment.events) == 1
     assert comment.events[0].comment_id == comment.id
+    assert q_repo.for_update_calls == [(question.id, True)]
 
 
 async def test_comment_on_answer_persists() -> None:
@@ -219,6 +230,7 @@ async def test_comment_on_answer_persists() -> None:
     )
     assert comment.target_type is CommentTarget.ANSWER
     assert c_repo.added == [comment]
+    assert q_repo.for_update_calls == [(question.id, True)]
 
 
 async def test_comment_missing_targets_raise_404() -> None:

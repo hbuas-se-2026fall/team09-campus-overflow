@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { questionsApi } from '../api/questions'
-import type { QuestionSort } from '../api/questions'
+import type { QuestionListParams } from '../api/questions'
 
-export function useQuestions(params: { page: number; pageSize: number; sort: QuestionSort }) {
+export function useQuestions(params: QuestionListParams & { page: number; pageSize: number }) {
   return useQuery({
     queryKey: ['questions', params],
-    queryFn: () => questionsApi.list({ page: params.page, page_size: params.pageSize, sort: params.sort }),
+    queryFn: () => {
+      const { pageSize, ...rest } = params
+      return questionsApi.list({ ...rest, page_size: pageSize })
+    },
   })
 }
 

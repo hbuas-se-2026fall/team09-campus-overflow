@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.contexts.qa.domain.question import QuestionStatus
 from app.shared.errors import DomainValidationError
+from app.shared.text_validation import reject_unsafe_text
 
 
 class AskQuestionRequest(BaseModel):
@@ -37,6 +38,20 @@ class PostAnswerRequest(BaseModel):
     body: str = Field(min_length=1, max_length=5000)
 
 
+class EditAnswerRequest(BaseModel):
+    """PATCH /api/v1/answers/{id} 请求体（US-A02 / F12）。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    body: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("body")
+    @classmethod
+    def _reject_unsafe_chars(cls, value: str) -> str:
+        reject_unsafe_text(value, field_name="回答正文")
+        return value
+
+
 class VoteRequest(BaseModel):
     """投票请求体（US-V01）：direction 枚举即校验，非法值 422。"""
 
@@ -59,6 +74,7 @@ class CommentResponse(BaseModel):
     id: UUID
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
 
 
@@ -69,6 +85,7 @@ class QuestionResponse(BaseModel):
     title: str
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
@@ -83,6 +100,7 @@ class QuestionListItem(BaseModel):
     id: UUID
     title: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
@@ -110,6 +128,7 @@ class AnswerResponse(BaseModel):
     id: UUID
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     votes: int
     is_accepted: bool
@@ -128,6 +147,7 @@ class QuestionDetailResponse(BaseModel):
     title: str
     body: str
     author_id: UUID
+    author_name: str
     created_at: datetime
     accepted_answer_id: UUID | None
     tags: list[str] = Field(default_factory=list)
@@ -153,3 +173,70 @@ class EditQuestionRequest(BaseModel):
         if self.title is None and self.body is None:
             raise DomainValidationError("至少提供 title 或 body 之一")
         return self
+
+
+class BadgeResponse(BaseModel):
+    """单枚徽章（F06）：稳定 code + 类别/等级/阈值。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    kind: str
+    tier: str
+    threshold: float
+
+
+class UserBadgesResponse(BaseModel):
+    """GET /api/v1/users/{id}/badges 响应（公开；实时计算）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    answer_count: int
+    accepted_count: int
+    acceptance_rate: float
+    longest_streak_days: int
+    badges: list[BadgeResponse]
+
+
+class BountyCreateRequest(BaseModel):
+    """发起悬赏请求体（F07）：金额 1~1,000,000。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount: int = Field(gt=0, le=1_000_000)
+
+
+class BountyResponse(BaseModel):
+    """悬赏白名单响应（F07）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    question_id: UUID
+    teacher_id: UUID
+    amount: int
+    status: str
+    created_at: datetime
+    settled_at: datetime | None
+
+
+class PointEntryResponse(BaseModel):
+    """积分流水行（F07 闭环；与 ReputationEntryResponse 字段口吻对齐）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    event_id: UUID
+    delta: int
+    reason: str
+    occurred_at: datetime
+
+
+class MyPointsResponse(BaseModel):
+    """GET /api/v1/users/me/points 响应。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    balance: int
+    entries: list[PointEntryResponse]

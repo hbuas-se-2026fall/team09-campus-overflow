@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
+from sqlalchemy import update as sql_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.identity.domain.errors import IdentityAlreadyExistsError
 from app.contexts.identity.domain.user import Role, User
-from app.contexts.identity.domain.value_objects import Email, PasswordHash, StaffId, StudentId
+from app.contexts.identity.domain.value_objects import (
+    ClassName,
+    College,
+    Email,
+    Nickname,
+    PasswordHash,
+    StaffId,
+    StudentId,
+)
 from app.contexts.identity.infrastructure.models import (
     RoleModel,
     StudentModel,
@@ -17,6 +26,7 @@ from app.contexts.identity.infrastructure.models import (
     UserModel,
     UserRoleModel,
 )
+from app.shared.sentinel import UNSET, UnsetType
 
 
 class SqlAlchemyUserRepository:
@@ -25,33 +35,63 @@ class SqlAlchemyUserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    def _user_select(self) -> Select[Any]:
+        """四条读路径共用的单次查询骨架（F09）。
+
+        Student/Teacher 是一对一扩展；UserRole/Role 当前业务不变式为单角色，
+        因此正常情况下每个用户恰好一行。多角色脏数据会让 one_or_none()
+        抛 MultipleResultsFound，按 F09 D1 视为数据完整性故障（500 + 服务端日志），
+        不在本特性提前改 User.role 为集合。
+        """
+        return (
+            select(
+                UserModel,
+                StudentModel.student_id,
+                TeacherModel.staff_id,
+                RoleModel.name,
+            )
+            .outerjoin(StudentModel, StudentModel.user_id == UserModel.id)
+            .outerjoin(TeacherModel, TeacherModel.user_id == UserModel.id)
+            .outerjoin(UserRoleModel, UserRoleModel.user_id == UserModel.id)
+            .outerjoin(RoleModel, RoleModel.id == UserRoleModel.role_id)
+        )
+
     async def get_by_email(self, email: str) -> User | None:
-        stmt = select(UserModel).where(UserModel.email == email)
-        model = (await self._session.execute(stmt)).scalar_one_or_none()
-        return None if model is None else await self._to_domain(model)
+        row = (
+            await self._session.execute(
+                self._user_select().where(UserModel.email == email)
+            )
+        ).one_or_none()
+        return None if row is None else _row_to_domain(row)
 
     async def get_by_student_id(self, student_id: str) -> User | None:
-        stmt = (
-            select(UserModel)
-            .join(StudentModel, StudentModel.user_id == UserModel.id)
-            .where(StudentModel.student_id == student_id)
-        )
-        model = (await self._session.execute(stmt)).scalar_one_or_none()
-        return None if model is None else await self._to_domain(model)
+        row = (
+            await self._session.execute(
+                self._user_select().where(StudentModel.student_id == student_id)
+            )
+        ).one_or_none()
+        return None if row is None else _row_to_domain(row)
 
     async def get_by_staff_id(self, staff_id: str) -> User | None:
-        stmt = (
-            select(UserModel)
-            .join(TeacherModel, TeacherModel.user_id == UserModel.id)
-            .where(TeacherModel.staff_id == staff_id)
-        )
-        model = (await self._session.execute(stmt)).scalar_one_or_none()
-        return None if model is None else await self._to_domain(model)
+        row = (
+            await self._session.execute(
+                self._user_select().where(TeacherModel.staff_id == staff_id)
+            )
+        ).one_or_none()
+        return None if row is None else _row_to_domain(row)
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
-        stmt = select(UserModel).where(UserModel.id == user_id)
-        model = (await self._session.execute(stmt)).scalar_one_or_none()
-        return None if model is None else await self._to_domain(model)
+    async def get_by_id(
+        self, user_id: UUID, *, for_update: bool = False
+    ) -> User | None:
+        stmt = self._user_select().where(UserModel.id == user_id)
+        if for_update:
+            # PG 外连接禁止对可空侧加锁：必须指定 of=UserModel 只锁主表行，
+            # 并用 populate_existing=True 刷新同一 Session 内可能预加载的旧值。
+            stmt = stmt.with_for_update(of=UserModel).execution_options(
+                populate_existing=True
+            )
+        row = (await self._session.execute(stmt)).one_or_none()
+        return None if row is None else _row_to_domain(row)
 
     async def add(self, user: User) -> None:
         self._session.add(
@@ -59,6 +99,10 @@ class SqlAlchemyUserRepository:
                 id=user.id,
                 email=user.email.value,
                 password_hash=user.password_hash.value,
+                nickname=user.nickname.value if user.nickname is not None else None,
+                college=user.college.value if user.college is not None else None,
+                class_name=user.class_name.value if user.class_name is not None else None,
+                email_verified=user.email_verified,
                 created_at=user.created_at,
                 updated_at=user.created_at,
             )
@@ -86,31 +130,63 @@ class SqlAlchemyUserRepository:
             # 不回显 exc.orig（含约束名/DB 细节）；详情随异常链入服务端日志
             raise IdentityAlreadyExistsError("注册信息唯一性冲突（并发兜底）") from exc
 
-    async def _to_domain(self, model: UserModel) -> User:
-        student = (
-            await self._session.execute(
-                select(StudentModel).where(StudentModel.user_id == model.id)
-            )
-        ).scalar_one_or_none()
-        teacher = (
-            await self._session.execute(
-                select(TeacherModel).where(TeacherModel.user_id == model.id)
-            )
-        ).scalar_one_or_none()
-        role_row = (
-            await self._session.execute(
-                select(RoleModel)
-                .join(UserRoleModel, UserRoleModel.role_id == RoleModel.id)
-                .where(UserRoleModel.user_id == model.id)
-            )
-        ).scalar_one_or_none()
+    async def update_profile(
+        self,
+        user_id: UUID,
+        *,
+        nickname: Nickname | None | UnsetType = UNSET,
+        college: College | None | UnsetType = UNSET,
+        class_name: ClassName | None | UnsetType = UNSET,
+    ) -> User | None:
+        values: dict[str, Any] = {}
+        if not isinstance(nickname, UnsetType):
+            values["nickname"] = None if nickname is None else nickname.value
+        if not isinstance(college, UnsetType):
+            values["college"] = None if college is None else college.value
+        if not isinstance(class_name, UnsetType):
+            values["class_name"] = None if class_name is None else class_name.value
 
-        return User(
-            id=model.id,
-            role=cast(Role, role_row.name if role_row is not None else "student"),
-            email=Email(model.email),
-            password_hash=PasswordHash(model.password_hash),
-            student_id=StudentId(student.student_id) if student is not None else None,
-            staff_id=StaffId(teacher.staff_id) if teacher is not None else None,
-            created_at=model.created_at,
+        if values:
+            values["updated_at"] = func.now()
+            stmt = (
+                sql_update(UserModel)
+                .where(UserModel.id == user_id)
+                .values(**values)
+                .execution_options(synchronize_session=False)
+            )
+            await self._session.execute(stmt)
+
+        refresh_stmt = (
+            self._user_select()
+            .where(UserModel.id == user_id)
+            .execution_options(populate_existing=True)
         )
+        row = (await self._session.execute(refresh_stmt)).one_or_none()
+        return None if row is None else _row_to_domain(row)
+
+    async def mark_email_verified(self, user_id: UUID) -> None:
+        stmt = (
+            sql_update(UserModel)
+            .where(UserModel.id == user_id)
+            .values(email_verified=True, updated_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+        await self._session.execute(stmt)
+
+
+def _row_to_domain(row: Any) -> User:
+    """行 → 聚合重建（F09/F10：单查询结果纯同步映射，无额外 SQL）。"""
+    model, student_id, staff_id, role_name = row
+    return User(
+        id=model.id,
+        role=cast(Role, role_name if role_name is not None else "student"),
+        email=Email(model.email),
+        password_hash=PasswordHash(model.password_hash),
+        student_id=StudentId(student_id) if student_id is not None else None,
+        staff_id=StaffId(staff_id) if staff_id is not None else None,
+        created_at=model.created_at,
+        nickname=Nickname(model.nickname) if model.nickname is not None else None,
+        college=College(model.college) if model.college is not None else None,
+        class_name=ClassName(model.class_name) if model.class_name is not None else None,
+        email_verified=bool(model.email_verified),
+    )

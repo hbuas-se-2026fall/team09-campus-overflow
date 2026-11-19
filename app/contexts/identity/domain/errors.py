@@ -32,3 +32,19 @@ class AccountLockedError(IdentityDomainError):
 
 class InvalidRefreshTokenError(IdentityDomainError):
     """Refresh 令牌无效/已失效（路由层转 401，消息按调用点具体化）。"""
+
+
+class EmailAlreadyVerifiedError(IdentityDomainError):
+    """邮箱已完成验证（F10，路由层转 409）。"""
+
+
+class VerificationCooldownError(IdentityDomainError):
+    """验证码发送冷却中（F10，路由层转 429）。"""
+
+
+class InvalidVerificationCodeError(IdentityDomainError):
+    """验证码无效、已过期或尝试次数超限（F10，路由层转 400）。"""
+
+
+class EmailVerificationUnavailableError(Exception):
+    """邮箱验证服务/存储不可用（F10）：故意不继承 IdentityDomainError，防落入基类 422。"""

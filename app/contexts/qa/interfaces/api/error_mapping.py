@@ -20,10 +20,13 @@ QA_ERROR_STATUS: dict[type[Exception], int] = {
     qa_errors.QuestionNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.AnswerNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.NotQuestionAuthorError: status.HTTP_403_FORBIDDEN,
+    qa_errors.NotAnswerAuthorError: status.HTTP_403_FORBIDDEN,
     qa_errors.AlreadyVotedError: status.HTTP_409_CONFLICT,
     qa_errors.AnswerAlreadyAcceptedError: status.HTTP_409_CONFLICT,
     qa_errors.QuestionAlreadyClosedError: status.HTTP_409_CONFLICT,
     qa_errors.QuestionClosedError: status.HTTP_409_CONFLICT,
+    qa_errors.InsufficientPointsError: status.HTTP_409_CONFLICT,
+    qa_errors.BountyAlreadyActiveError: status.HTTP_409_CONFLICT,
 }
 
 

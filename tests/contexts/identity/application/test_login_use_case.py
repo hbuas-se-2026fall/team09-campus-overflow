@@ -47,7 +47,7 @@ class FakeRepository:
             None,
         )
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
+    async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
         return next((u for u in self.users if u.id == user_id), None)
 
 

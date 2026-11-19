@@ -22,34 +22,119 @@
 | 422 | **数组** `[{type, loc, msg}]`（不回显 input） | Pydantic 校验（含 extra=forbid、tags 类型/结构/原始数量 >20） | 逐项展示 msg。⚠️ schema 声明的 `input`/`ctx` 是 FastAPI 内置 ValidationError 模型残留，**实际响应永不含这两个键**，请以 type/loc/msg 为准 |
 | 422 | **字符串**（中文业务语义，如"至多 5 个标签…""标签含不支持的字符…"） | 领域值对象校验（Title/Body/Tag 与标签去重后 ≤5 上限） | 直接展示该句。**tags 两种 422 形态都要处理**：类型/结构错=数组形，语义违规=字符串形 |
 | 401 | 字符串（如"令牌无效或已过期"） | Bearer 依赖层 | 跳登录页 |
-| 400 | 字符串"请求数据无法被数据库接受…" | 数据库兜底 | 提示检查输入 |
+| 400 | 字符串（如"请求数据无法被数据库接受…""验证码无效或已过期"） | 数据库兜底 / 邮箱验证码校验失败（错码/过期/超 5 次） | 提示检查输入或重发验证码 |
 | 413 | 字符串"request body too large" | 1 MiB body 上限中间件 | 提示内容过大 |
 | 404 | 字符串（如"问题不存在"） | 业务语义 | 展示空态 |
-| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结（投票/回答/评论/采纳/编辑） | 展示提示；**勿自动重试** |
+| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送 | 展示提示；**勿自动重试** |
 | 423 | 字符串"尝试次数过多，账号临时锁定，请稍后再试" | 登录失败超限（US-L04：5 次/15 分钟窗口，成功登录即清零） | 提示稍后再试；**勿自动重试** |
+| 429 | 字符串（如"发送过于频繁，请 60 秒后再试"） | 邮箱验证码发送冷却（F10：60s 冷却） | 展示倒计时，勿自动重试 |
 | 405 | 标准 Method Not Allowed | 方法面 | —（请求方式写错才会遇到） |
-| 503 | 字符串"服务暂时不可用，请稍后重试" | 数据库不可达/连接超时/池排队超时（容量工程异常分层） | **可重试**（指数退避），勿当业务错误 |
+| 503 | 字符串"服务暂时不可用，请稍后重试" / "邮箱验证服务暂时不可用…" | 数据库/Redis/邮件发送不可达或未配置（F10 / 容量分层） | **可重试**（指数退避），勿当业务错误 |
 
-**⚠️ 全局错误码不在 schema 内**：`openapi.json` 各路由 `responses` 只声明了 200/201/204/422；上表中的 401/400/404/405/409/413/423/503 来自中间件、依赖层与路由映射，**生成类型时看不见，但真实存在，前端必须处理**。
+**⚠️ 全局错误码不在 schema 内**：`openapi.json` 各路由 `responses` 只声明了 200/201/204/422；上表中的 401/400/404/405/409/413/423/429/503 来自中间件、依赖层与路由映射，**生成类型时看不见，但真实存在，前端必须处理**。
 
 ## 四、分页契约（`GET /api/v1/questions`）
 
 - 请求：`page ≥ 1`（默认 1）、`page_size` 1~100（默认 20）
+- 筛选（F01/US-Q07，2026-11-05）：
+  - `tag` **可重复传参**（`?tag=a&tag=b`），多个标签为 **AND**；按标签归并键匹配，**大小写不敏感**；同一 key 重复传参自动去重
+  - `status`：`open` / `closed`；**省略 = 全部**（向后兼容）
+  - `created_from` / `created_to`：创建时间**闭区间**，**必须带时区**；naive → 422；`created_from > created_to` → 422
+  - 空 `tag=`（空串）、非法字符标签、非法时间格式、tag 去重后超过 5 个（与每题标签上限一致）→ 422
+  - 筛选条件同时作用于 `total` 统计与当前页数据（同口径）；筛选后超总页仍 **200 空列表**
+- 搜索（F02，2026-11-12）：
+  - `q`：匹配**标题 + 正文**，大小写不敏感；空串/纯空白等价于不传
+  - 至多 **100 字**；含制表符/换行/回车或其它控制字符 → **422 字符串形**
+  - `%`、`_`、`\` 按**字面**匹配（不是通配符）
+  - 可与 `tag`/`status`/`created_from`/`created_to`/`sort`/分页任意组合，`total` 与结果同口径
 - 响应：`{items, total, page, page_size, total_pages}`；**空库 `total_pages = 0`**
-- 排序：`created_at` 新→旧（同刻按 id 定序，跨页零重复零漏项）
+- 排序：`created_at` 新→旧（同刻按 id 定序，跨页零重复零漏项）；`sort=votes` 按净票数，可与全部筛选组合
 - 超总页 → **200 空列表**（非 404）
 
-## 四点五、声誉查询口径（`GET /api/v1/users/{user_id}/reputation`）
+## 四点五、相关问题推荐（`GET /api/v1/questions/{id}/related`，F03）
+
+- 访客可用；返回 `QuestionListItem[]`，**无分页、无 `total`**
+- `limit` 1~10，默认 5；越界 → **422**
+- 排序：标签重合数降序 → 净票数降序 → 创建时间降序 → id 降序；**排除自身**
+- 无标签问题 → **200 空数组**；问题不存在 → **404**（detail `"问题不存在"`）
+- 关闭问题仍可被推荐（与列表 `status` 口径一致，不额外过滤）
+
+## 四点六、声誉查询口径（`GET /api/v1/users/{user_id}/reputation`）
 
 - **仅本人**（v3.1 裁定 4）：他人查询 → **403**（author_id 在问题/回答已公开，无存在性可泄露）；未登录 401
 - **最终一致**：投票/采纳后声誉流水经 Celery **异步**落账（实测结算延迟亚秒~1.3s）——前端**勿假设 204 后同步可查**，展示前轮询或容忍短暂滞后
 - `entries` 不分页（流水量小）；`total` 可为负（踩分计入）；空账 `total=0` + 空列表
 - 分值口径唯一出处：后端 `reputation/domain/ledger.py` 常量（答赞 +10 / 答踩 −2 / 题赞 +5 / 题踩 −2 / 采纳 +15，自投不计分）
 
-## 四点六、会话与登出口径（`POST /api/v1/auth/logout`）
+## 四点七、会话与登出口径（`POST /api/v1/auth/logout`）
 
 - logout 吊销 **Refresh 令牌**，幂等 **204**（无效/已吊销令牌同样 204，不暴露令牌状态）；
 - **Access 令牌不进黑名单**：登出后其在剩余有效期（≤15 分钟）内仍可通过认证——无状态 JWT 的标准取舍（业界惯例）；前端登出即清本地令牌，勿依赖服务端立即失效。
+
+## 四点八、排行榜（`GET /api/v1/leaderboard`，F05）
+
+- **公开**，无需登录；空榜返回 200 + `entries=[]`
+- `period`：`week`（默认）/ `month` / `semester`
+- 学期边界（Asia/Shanghai）：春季 3/1–8/1，秋季 9/1–次年 2/1；**2 月归上一秋季、8 月归当年春季**
+- 得分 = 期间 `SUM(delta)` **净得分**（含负）；名次为 **同分同名次**（1,1,3），同分按 `user_id` 升序稳定
+- `limit` 1~100，默认 10；非法 `period`/越界 `limit` → 422
+- 响应：`{period, period_start, period_end, entries:[{user_id, display_name, score, rank}]}`（展示名随 F11 实时回填，不受榜单 60s 缓存影响）
+- **热榜缓存（F08，2026-11-17）**：服务端可能命中 Redis 短时缓存，**最大陈旧 = TTL 60s + 声誉 Celery 落账延迟（亚秒~约 1.3s）**；投票/采纳后 60s 内榜单可能仍是旧快照，前端勿假设立即可见。缓存故障自动降级直查 PG，仍返回 200，不会因 Redis 不可用变成 503。
+
+## 四点九、用户徽章（`GET /api/v1/users/{id}/badges`，F06）
+
+- **公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）
+- 实时计算，不物化；响应含 `answer_count`、`accepted_count`、`acceptance_rate`、`longest_streak_days`、`badges[]`
+- 徽章族与阈值：
+  - 回答数：5 / 20 / 50（铜/银/金）
+  - 采纳率：回答数 ≥5 才评估，50% / 70% / 90%
+  - 连续活跃：**历史最长**连续天数 3 / 7 / 30；活跃按 Asia/Shanghai 自然日，含发帖/回答/评论/投票
+- 徽章 `code` 形如 `answers_5`、`acceptance_70`、`streak_3`；同族可同时命中多档
+- 无活动 → 200 + `badges=[]`（非 404）
+
+## 四点十、通知中心（`/api/v1/notifications`，F04）
+
+- 全部端点**要求登录**（401 未认证）；收件人恒取令牌当前用户
+- `GET ""`：分页 `page/page_size/unread_only`，`created_at` 新→旧；响应 `{items,total,page,page_size,total_pages}`
+- `GET /unread-count`：`{count}`
+- `POST /{id}/read`：幂等 **204**；非本人/不存在 → **404**（不泄露存在性）
+- `POST /read-all`：`{updated}`（本次由未读转为已读的条数，幂等）
+- 通知类型：`answer_posted` / `answer_accepted` / `comment_created`；自己操作自己的内容不产生通知
+- 每条通知含可选 `question_id`（新写入的通知无论目标为问题还是回答均带所属 `question_id`，存量历史通知可能为 `null`）
+- 同事件对同一收件人只落一条（库级唯一键），重复触发不会重复插入
+
+## 四点十一、教师悬赏（`/api/v1/questions/{id}/bounty`）与个人积分（`/api/v1/users/me/points`，F07）
+
+- `POST /api/v1/questions/{id}/bounty`：**仅教师**（学生 403）；body `{"amount": 1~1000000}`
+  - 问题不存在 404；问题已关闭 409；**问题已有采纳答案 409**；余额不足 409；同一问题已有进行中悬赏 409
+  - 成功 201，返回 `{id,question_id,teacher_id,amount,status:"open",created_at,settled_at:null}`
+- `GET /api/v1/questions/{id}/bounty`：公开；返回进行中悬赏，无悬赏 → `200 null`；问题不存在 → 404
+- `GET /api/v1/users/me/points`：需登录（401）；返回 `{balance, entries: [{source, event_id, delta, reason, occurred_at}]}`；教师首次访问惰性开户并发放 100 初始分，学生只读既有余额与流水
+- 资金流：发起时冻结积分；采纳时结算给答主；关闭且未采纳时全额退款（各只发生一次）
+- 积分与声誉分离；教师初始额度 100 分，首版无充值/发放端点
+
+## 四点十二、校园资料更新与邮箱验证（F10）
+
+- `RegisterResponse`（`/register`、`/me`、`PATCH /me/profile` 共用）增量返回 `nickname`、`college`、`class_name`、`email_verified`（存量用户迁移后默认为 `false`）。
+- `PATCH /api/v1/auth/me/profile`：需登录（401）；请求体 `nickname`（1–30 字，允许重名）、`college`（1–64 字）、`class_name`（1–64 字）均可选，至少传一项（空 `{}` → 422）；未传字段保持原值，显式传 `null` 清空，传空串/纯空白 → 422；成功返回 **200** + 更新后的 `RegisterResponse`。
+- `POST /api/v1/auth/me/verify-email/send`：需登录（401）；成功 **204**（60s 冷却、15 分钟有效）；60s 内重发 → **429**；已验证用户 → **409**；Redis/SMTP 不可用或未配置 → **503**（自动回滚冷却与验证码，可立即重试）。
+- `POST /api/v1/auth/me/verify-email/confirm`：需登录（401）；body `{"code": "6位ASCII数字"}`；成功或已验证 → **204**（幂等）；错码/过期/连续 5 次错码作废 → **400**（统一文案防枚举）；Redis 故障 → **503**。
+
+## 四点十三、公开展示名与个人主页（F11）
+
+- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `学生#<8位hex>`、`教师#<8位hex>` 或通用 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
+- **增量回填字段**：
+  - 问答与评论（`QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse`、`AnswerResponse`、`CommentResponse`）均增量返回 `author_name`；
+  - 排行榜条目（`LeaderboardEntryResponse`）增量返回 `display_name`（即使命中 60s 榜单缓存，展示名仍实时查询回填）；
+  - 通知条目（`NotificationResponse`）增量返回 `actor_name`。
+- `GET /api/v1/users/{user_id}/profile`：**公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）；最小披露返回 `{user_id, role, display_name, nickname, college, class_name}`，严禁返回 `email`、`student_id`、`staff_id`、`email_verified` 等隐私字段。
+
+## 四点十四、编辑回答（`PATCH /api/v1/answers/{answer_id}`，F12）
+
+- 需登录（401）；**仅回答者本人**可编辑（非作者含提问者均 **403** `"仅回答者可编辑回答"`）。
+- 请求体：`{"body": "1~5000字"}`（`extra=forbid`、`str_strip_whitespace=True`，纯空白/控制字符 → 422）。
+- 回答不存在 → **404**；所属问题已关闭 → **409**；**已采纳回答**（所属问题必为 `open` 态）仍允许回答者本人编辑且保持 `is_accepted=true`。
+- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入）。
 
 ## 五、开发期调试入口
 

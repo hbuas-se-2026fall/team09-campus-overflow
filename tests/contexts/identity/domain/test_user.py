@@ -1,10 +1,28 @@
 """User 聚合与值对象的单元测试（不连库、不依赖框架）。"""
 
+from uuid import UUID
+
 import pytest
 
 from app.contexts.identity.domain.errors import IdentityRequiredError, WeakPasswordError
-from app.contexts.identity.domain.user import User, validate_password_strength
-from app.contexts.identity.domain.value_objects import Email, PasswordHash, StaffId, StudentId
+from app.contexts.identity.domain.user import (
+    User,
+    normalize_public_nickname,
+    resolve_display_name,
+    validate_password_strength,
+)
+from app.contexts.identity.domain.value_objects import (
+    ClassName,
+    College,
+    Email,
+    Nickname,
+    PasswordHash,
+    StaffId,
+    StudentId,
+    VerificationCode,
+)
+from app.shared.errors import DomainValidationError
+from app.shared.sentinel import UNSET
 
 
 class TestPasswordStrength:
@@ -99,3 +117,87 @@ class TestUserRegistration:
                 password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
                 identity_value=None,
             )
+
+
+class TestProfileAndVerificationValueObjects:
+    def test_nickname_college_class_name_strip_and_limits(self) -> None:
+        assert Nickname("  张同学  ").value == "张同学"
+        assert College("  计算机学院 ").value == "计算机学院"
+        assert ClassName(" 软工2401 ").value == "软工2401"
+
+        with pytest.raises(DomainValidationError):
+            Nickname("   ")
+        with pytest.raises(DomainValidationError):
+            Nickname("a" * 31)
+        with pytest.raises(DomainValidationError):
+            College("a" * 65)
+        with pytest.raises(DomainValidationError):
+            ClassName("x\x00y")
+
+    def test_verification_code_accepts_six_ascii_digits_only(self) -> None:
+        assert VerificationCode("004219").value == "004219"
+        for bad in ("12345", "1234567", "12a456", "١٢٣٤٥٦", "123\x0045"):
+            with pytest.raises(DomainValidationError):
+                VerificationCode(bad)
+
+    def test_user_update_profile_and_mark_verified(self) -> None:
+        user = User.register(
+            role="student",
+            email_value="zhang@stu.edu.cn",
+            password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+            identity_value="2025010101",
+        )
+        assert user.nickname is None
+        assert user.email_verified is False
+
+        user.update_profile(nickname=Nickname("小张"), college=College("计算机学院"))
+        assert user.nickname == Nickname("小张")
+        assert user.college == College("计算机学院")
+        assert user.class_name is None
+
+        user.update_profile(nickname=UNSET, college=None, class_name=ClassName("2401"))
+        assert user.nickname == Nickname("小张")
+        assert user.college is None
+        assert user.class_name == ClassName("2401")
+
+        user.mark_email_verified()
+        assert user.email_verified is True
+
+
+class TestDisplayName:
+    def test_resolve_display_name_prefers_trimmed_nickname(self) -> None:
+        uid = UUID("12345678-90ab-cdef-1234-567890abcdef")
+        assert resolve_display_name("student", uid, "  张同学  ") == "张同学"
+        assert normalize_public_nickname("   ") is None
+        assert normalize_public_nickname(None) is None
+
+    @pytest.mark.parametrize("blank", [None, "", "   ", "\t\n"])
+    def test_resolve_display_name_fallbacks_without_pii(self, blank: str | None) -> None:
+        uid = UUID("a1b2c3d4-0000-0000-0000-000000000000")
+        assert resolve_display_name("student", uid, blank) == "学生#a1b2c3d4"
+        assert resolve_display_name("teacher", uid, blank) == "教师#a1b2c3d4"
+        assert resolve_display_name("ta", uid, blank) == "用户#a1b2c3d4"
+        assert resolve_display_name("admin", uid, blank) == "用户#a1b2c3d4"
+
+    def test_user_display_name_property_uses_nickname_or_fallback(self) -> None:
+        student = User.register(
+            role="student",
+            email_value="zhang@stu.edu.cn",
+            password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+            identity_value="2025010101",
+        )
+        assert student.display_name == f"学生#{student.id.hex[:8]}"
+        assert "2025010101" not in student.display_name
+        assert "zhang@stu.edu.cn" not in student.display_name
+
+        student.update_profile(nickname=Nickname("小张"))
+        assert student.display_name == "小张"
+
+        teacher = User.register(
+            role="teacher",
+            email_value="li@edu.cn",
+            password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+            identity_value="T10086",
+        )
+        assert teacher.display_name == f"教师#{teacher.id.hex[:8]}"
+        assert "T10086" not in teacher.display_name

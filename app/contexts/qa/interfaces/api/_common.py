@@ -9,6 +9,10 @@ from uuid import UUID
 
 from fastapi import Response, status
 
+from app.contexts.identity.application.ports import (
+    UserSummary,
+    pick_summary_display_name,
+)
 from app.contexts.qa.application.commands import CreateCommentCommand, VoteOnCommand
 from app.contexts.qa.application.comment_use_case import CreateCommentUseCase
 from app.contexts.qa.application.vote_use_case import VoteOnUseCase
@@ -17,6 +21,7 @@ from app.contexts.qa.domain.vote import VoteCast, VoteDirection, VoteTarget
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
     CommentRepo,
+    NotificationWriterDep,
     QuestionRepo,
     VoteRepo,
 )
@@ -75,12 +80,14 @@ async def create_comment_on_target(
     target_id: UUID,
     payload: CommentRequest,
     user_id: UUID,
+    author_name: str,
     questions: QuestionRepo,
     answers: AnswerRepo,
     comments: CommentRepo,
+    notification_writer: NotificationWriterDep,
 ) -> CommentResponse:
     """题评/答评端点共用：成功 201 + 白名单；目标不存在 404；正文兜底 422。"""
-    use_case = CreateCommentUseCase(questions, answers, comments)
+    use_case = CreateCommentUseCase(questions, answers, comments, notification_writer)
     comment = await use_case.execute(
         CreateCommentCommand(
             target_type=target_type,
@@ -89,13 +96,19 @@ async def create_comment_on_target(
             author_id=user_id,  # 作者只取令牌，绝不取自请求体
         )
     )
-    return comment_response(comment)
+    return comment_response(comment, author_name=author_name)
 
 
-def comment_response(comment: Comment) -> CommentResponse:
+def comment_response(comment: Comment, *, author_name: str) -> CommentResponse:
     return CommentResponse(
         id=comment.id,
         body=comment.body.value,
         author_id=comment.author_id,
+        author_name=author_name,
         created_at=comment.created_at,
     )
+
+
+def display_name_for(summaries: dict[UUID, UserSummary], user_id: UUID) -> str:
+    """从批量摘要字典取展示名；缺失用户安全降级，绝不因孤立引用报错。"""
+    return pick_summary_display_name(summaries, user_id)

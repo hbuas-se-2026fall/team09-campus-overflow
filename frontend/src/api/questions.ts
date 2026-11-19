@@ -8,6 +8,7 @@ export type QuestionListItem = {
   id: string
   title: string
   author_id: string
+  author_name: string
   created_at: string
   tags: string[]
   status: QuestionStatus
@@ -26,6 +27,7 @@ export type QuestionResponse = {
   title: string
   body: string
   author_id: string
+  author_name: string
   created_at: string
   tags: string[]
   status: QuestionStatus
@@ -44,12 +46,23 @@ export type QuestionDetail = QuestionResponse & {
   comments: CommentResponse[]
 }
 
+export type QuestionListParams = {
+  page?: number
+  page_size?: number
+  sort?: QuestionSort
+  q?: string
+  tag?: string[]
+  status?: QuestionStatus
+  created_from?: string
+  created_to?: string
+}
+
 function normalizeAnswer(answer: AnswerResponse): AnswerResponse {
   return { ...answer, comments: answer.comments ?? [] }
 }
 
 export const questionsApi = {
-  list(params?: { page?: number; page_size?: number; sort?: QuestionSort }) {
+  list(params?: QuestionListParams) {
     return apiClient.get<QuestionListResponse>('/v1/questions', { params }).then(({ data }) => ({
       ...data,
       items: data.items.map((item) => ({ ...item, tags: item.tags ?? [] })),
@@ -76,6 +89,9 @@ export const questionsApi = {
   postAnswer(questionId: string, payload: { body: string }) {
     return apiClient.post<AnswerResponse>(`/v1/questions/${questionId}/answers`, payload).then(({ data }) => normalizeAnswer(data))
   },
+  editAnswer(answerId: string, payload: { body: string }) {
+    return apiClient.patch<AnswerResponse>(`/v1/answers/${answerId}`, payload).then(({ data }) => normalizeAnswer(data))
+  },
   voteQuestion(questionId: string, direction: 'up' | 'down') {
     return apiClient.post<void>(`/v1/questions/${questionId}/vote`, { direction })
   },
@@ -90,6 +106,15 @@ export const questionsApi = {
   },
   acceptAnswer(answerId: string) {
     return apiClient.post<void>(`/v1/answers/${answerId}/accept`)
+  },
+  related(questionId: string, limit = 5) {
+    return apiClient.get<QuestionListItem[]>(`/v1/questions/${questionId}/related`, { params: { limit } }).then(({ data }) => data.map((item) => ({ ...item, tags: item.tags ?? [] })))
+  },
+  getBounty(questionId: string) {
+    return apiClient.get<import('./types').BountyResponse | null>(`/v1/questions/${questionId}/bounty`).then(({ data }) => data)
+  },
+  createBounty(questionId: string, amount: number) {
+    return apiClient.post<import('./types').BountyResponse>(`/v1/questions/${questionId}/bounty`, { amount }).then(({ data }) => data)
   },
   listTags() {
     return apiClient.get<{ tags: string[] }>('/v1/tags').then(({ data }) => data.tags)

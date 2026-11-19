@@ -11,6 +11,10 @@ const QuestionsPage = lazy(() => import('../pages/QuestionsPage').then(({ Questi
 const RegisterPage = lazy(() => import('../pages/RegisterPage').then(({ RegisterPage: component }) => ({ default: component })))
 const ReputationPage = lazy(() => import('../pages/ReputationPage').then(({ ReputationPage: component }) => ({ default: component })))
 const TagsPage = lazy(() => import('../pages/TagsPage').then(({ TagsPage: component }) => ({ default: component })))
+const ProfilePage = lazy(() => import('../pages/ProfilePage').then(({ ProfilePage: component }) => ({ default: component })))
+const AccountPage = lazy(() => import('../pages/AccountPage').then(({ AccountPage: component }) => ({ default: component })))
+const NotificationsPage = lazy(() => import('../pages/NotificationsPage').then(({ NotificationsPage: component }) => ({ default: component })))
+const LeaderboardPage = lazy(() => import('../pages/LeaderboardPage').then(({ LeaderboardPage: component }) => ({ default: component })))
 const AdminEntryPage = lazy(() => import('../pages/AdminEntryPage').then(({ AdminEntryPage: component }) => ({ default: component })))
 const AdminPreviewPage = isAdminPreview
   ? lazy(() => import('../pages/AdminPreviewPage').then(({ AdminPreviewPage: component }) => ({ default: component })))
@@ -36,6 +40,10 @@ export function AppRouter() {
             <Route index element={<Navigate to="/questions" replace />} />
             <Route path="/questions" element={<QuestionsPage />} />
             <Route path="/tags" element={<TagsPage />} />
+            <Route path="/leaderboard" element={<LeaderboardPage />} />
+            <Route path="/users/:userId" element={<ProfilePage />} />
+            <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
+            <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute><AdminEntryPage /></ProtectedRoute>} />
             {AdminPreviewPage && <Route path="/admin/preview" element={<AdminPreviewPage />} />}
             <Route path="/reputation" element={<ProtectedRoute><ReputationPage /></ProtectedRoute>} />

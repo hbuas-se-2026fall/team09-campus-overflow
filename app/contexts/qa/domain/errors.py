@@ -21,6 +21,10 @@ class NotQuestionAuthorError(QADomainError):
     """非提问者尝试采纳：仅提问者可采纳其问题的回答（US-V03，路由层转 403）。"""
 
 
+class NotAnswerAuthorError(QADomainError):
+    """非回答者尝试编辑：仅回答者本人可编辑自己的回答（US-A02 / F12，路由层转 403）。"""
+
+
 class AnswerAlreadyAcceptedError(QADomainError):
     """问题已有采纳答案：一题仅一个最佳答案，重复采纳一律 409（US-V03 幂等）。
 
@@ -37,3 +41,11 @@ class QuestionClosedError(QADomainError):
 
     关闭为终态（2026-09-29 裁定全冻结）；消息按调用点语义具体化。
     """
+
+
+class InsufficientPointsError(QADomainError):
+    """教师积分不足，无法发起悬赏（F07，路由层转 409）。"""
+
+
+class BountyAlreadyActiveError(QADomainError):
+    """同一问题已有进行中的悬赏（F07，D13：部分唯一索引兜底，路由层转 409）。"""

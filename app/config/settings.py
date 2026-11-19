@@ -1,10 +1,14 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_EMAIL_VERIFY_HMAC_SECRET = "dev-email-verify-secret-change-me"
 
 
 class Settings(BaseSettings):
     app_name: str = "CampusOverflow"
+    app_env: Literal["dev", "test", "prod"] = "dev"
     debug: bool = False
     database_url: str = "postgresql+asyncpg://campus:campus@localhost:5432/campus"
     # 连接池参数。db_pool_size=0 是哨兵：表示继续用 NullPool（默认，测试/CI 零影响），
@@ -26,8 +30,23 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     # JWT 签名密钥：默认仅开发用，生产必须从环境变量覆盖（.env 不入库）
     jwt_secret: str = "dev-secret-change-me-in-production"
+    # F08 排行榜热榜缓存 TTL（秒）；<=0 时跳过缓存直查库
+    leaderboard_cache_ttl_seconds: int = 60
+    # F10 邮箱验证码 HMAC 密钥与 SMTP 配置（prod 下禁止默认密钥且需完整 SMTP）
+    email_verify_hmac_secret: str = DEFAULT_EMAIL_VERIFY_HMAC_SECRET
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+    smtp_timeout_seconds: float = 10.0
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache

@@ -80,3 +80,21 @@ class EditQuestionCommand:
     actor_id: UUID
     title: str | None
     body: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class EditAnswerCommand:
+    """编辑回答命令（US-A02 / F12）：actor_id 来自认证依赖，须为回答作者。"""
+
+    answer_id: UUID
+    actor_id: UUID
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class CreateBountyCommand:
+    """发起教师悬赏命令（F07）。teacher_id 来自认证依赖，绝不来自请求体。"""
+
+    question_id: UUID
+    teacher_id: UUID
+    amount: int

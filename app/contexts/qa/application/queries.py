@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.contexts.qa.domain.repository import QuestionSort
+from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +15,7 @@ class ListQuestionsQuery:
     page: int
     page_size: int
     sort: QuestionSort = QuestionSort.LATEST
+    filters: QuestionFilter | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,3 +23,11 @@ class GetQuestionQuery:
     """详情查询参数。"""
 
     question_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ListRelatedQuestionsQuery:
+    """相关问题查询（F03）：limit 边界（1~10）由路由 Query 校验后传入。"""
+
+    question_id: UUID
+    limit: int = 5

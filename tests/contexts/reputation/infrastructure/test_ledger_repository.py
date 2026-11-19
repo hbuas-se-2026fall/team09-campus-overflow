@@ -51,6 +51,14 @@ def _entry(source: LedgerSource, delta: int, at: datetime) -> LedgerEntry:
     )
 
 
+def _window() -> tuple[datetime, datetime]:
+    """每次运行生成唯一远期窗口：避免多轮累积污染排行榜断言（测试幂等）。"""
+    start = datetime(2100, 1, 1, tzinfo=UTC) + timedelta(
+        days=uuid.uuid4().int % 100_000
+    )
+    return start, start + timedelta(days=1)
+
+
 async def test_append_if_absent_idempotent_single_row() -> None:
     """同 (source, event_id) 二次追加 → False，库中恰一行。"""
     user_id = await _make_user()
@@ -117,3 +125,73 @@ async def test_entries_desc_orders_by_occurred_at() -> None:
         await session.commit()
         entries = await repo.entries_desc(user_id)
         assert [e.event_id for e in entries] == [new.event_id, old.event_id]
+
+
+# ============================================================
+# F05 排行榜：期间聚合 / competition ranking / 窗口过滤 / limit
+# ============================================================
+
+
+async def test_list_top_aggregates_scores_and_competition_rank() -> None:
+    """净得分降序；同分同名次（1,2,2），同分内按 user_id 升序稳定。"""
+    top_user = await _make_user()
+    tie_a = await _make_user()
+    tie_b = await _make_user()
+    start, end = _window()
+    at = start + timedelta(hours=1)
+    async with session_factory() as session:
+        repo = SqlAlchemyReputationLedgerRepository(session)
+        await repo.append_if_absent(top_user, _entry(LedgerSource.VOTE, 20, at))
+        await repo.append_if_absent(tie_a, _entry(LedgerSource.VOTE, 10, at))
+        await repo.append_if_absent(tie_b, _entry(LedgerSource.VOTE, 10, at))
+        await session.commit()
+
+        rows = await repo.list_top(start, end, 10)
+        assert [row.score for row in rows] == [20, 10, 10]
+        assert [row.rank for row in rows] == [1, 2, 2]
+        assert rows[0].user_id == top_user
+        assert {rows[1].user_id, rows[2].user_id} == {tie_a, tie_b}
+
+
+async def test_list_top_excludes_outside_window() -> None:
+    """仅统计 [start, end)：窗口外流水不计分、不入榜。"""
+    inside = await _make_user()
+    outside = await _make_user()
+    start, end = _window()
+    async with session_factory() as session:
+        repo = SqlAlchemyReputationLedgerRepository(session)
+        await repo.append_if_absent(
+            inside, _entry(LedgerSource.VOTE, 10, start + timedelta(hours=1))
+        )
+        await repo.append_if_absent(
+            outside, _entry(LedgerSource.VOTE, 100, start - timedelta(days=1))
+        )
+        await session.commit()
+
+        rows = await repo.list_top(start, end, 10)
+        assert [row.user_id for row in rows] == [inside]
+        assert rows[0].score == 10
+
+
+async def test_list_top_empty_window_returns_empty() -> None:
+    start, end = _window()
+    async with session_factory() as session:
+        rows = await SqlAlchemyReputationLedgerRepository(session).list_top(
+            start, end, 10
+        )
+        assert rows == []
+
+
+async def test_list_top_respects_limit() -> None:
+    users = [await _make_user() for _ in range(3)]
+    start, end = _window()
+    at = start + timedelta(hours=1)
+    async with session_factory() as session:
+        repo = SqlAlchemyReputationLedgerRepository(session)
+        for user_id, delta in zip(users, (30, 20, 10), strict=True):
+            await repo.append_if_absent(user_id, _entry(LedgerSource.VOTE, delta, at))
+        await session.commit()
+
+        rows = await repo.list_top(start, end, 2)
+        assert [row.user_id for row in rows] == [users[0], users[1]]
+        assert [row.rank for row in rows] == [1, 2]

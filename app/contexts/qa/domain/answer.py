@@ -86,3 +86,7 @@ class Answer:
         被采纳回答不可删除（V03）由删除路径在落地时强制（本阶段无删除用例）。
         """
         self.is_accepted = True
+
+    def edit_body(self, *, body_value: str) -> None:
+        """编辑回答正文（US-A02 / F12）：值对象先校验后赋值，保留既有采纳/票数状态。"""
+        self.body = Body(body_value)
