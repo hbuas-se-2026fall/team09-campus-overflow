@@ -46,6 +46,10 @@ class QuestionModel(Base):
     )
     # 关闭态（US-Q08，迭代 5）：open/closed；server_default 让存量行随迁移自动归 open
     status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="open")
+    # 软删除时间戳（F13）：NULL 表示活跃，非 NULL 表示已软删除（不级联写子表）
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         # F09：F02 的 ILIKE '%q%' 标题/正文模糊搜索走 pg_trgm GIN；模型同步声明防
@@ -91,6 +95,10 @@ class AnswerModel(Base):
     is_accepted: Mapped[bool] = mapped_column(nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # 软删除时间戳（F13）：NULL 表示活跃，非 NULL 表示已软删除
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     __table_args__ = (

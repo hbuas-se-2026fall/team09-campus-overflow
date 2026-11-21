@@ -32,20 +32,37 @@ class FakeQuestionRepository:
         self.question = question
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
-        return self.question if self.question.id == question_id else None
+        if self.question.id == question_id and (
+            include_deleted or not self.question.is_deleted
+        ):
+            return self.question
+        return None
 
     async def update(self, question: Question) -> None:
         self.question = question
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
 
 class FakeAnswerRepository:
     def __init__(self, answer: Answer | None = None) -> None:
         self.answer = answer
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        if self.answer is not None and self.answer.id == answer_id:
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        if (
+            self.answer is not None
+            and self.answer.id == answer_id
+            and (include_deleted or not self.answer.is_deleted)
+        ):
             return self.answer
         return None
 
@@ -57,6 +74,9 @@ class FakeAnswerRepository:
 
     async def update_body(self, answer: Answer) -> None:
         self.answer = answer
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
 
 class FakeCommentRepository:

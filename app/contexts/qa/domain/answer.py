@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from app.contexts.qa.domain.errors import AcceptedAnswerCannotDeleteError
 from app.contexts.qa.domain.value_objects import Body
 
 
@@ -56,6 +57,21 @@ class Answer:
     # Answer.post() 恒 0——写路径与领域不变式不得依赖该值。
     votes_count: int = 0
     events: list[AnswerPosted] = field(default_factory=list, repr=False, compare=False)
+    deleted_at: datetime | None = None
+
+    @property
+    def is_deleted(self) -> bool:
+        """是否已软删除（F13）。"""
+        return self.deleted_at is not None
+
+    def soft_delete(self, *, at: datetime | None = None) -> bool:
+        """软删除回答（F13，D1–D2）：已删除保持幂等返回 False；已采纳不可删除（409）。"""
+        if self.is_deleted:
+            return False
+        if self.is_accepted:
+            raise AcceptedAnswerCannotDeleteError("已采纳的回答不可删除")
+        self.deleted_at = at if at is not None else datetime.now(UTC)
+        return True
 
     @classmethod
     def post(cls, *, question_id: UUID, author_id: UUID, body_value: str) -> Answer:

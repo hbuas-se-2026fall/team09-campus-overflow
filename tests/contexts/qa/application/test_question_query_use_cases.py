@@ -42,9 +42,23 @@ class FakeQuestionRepository:
         return None
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
-        return next((q for q in self.added if q.id == question_id), None)
+        return next(
+            (
+                q
+                for q in self.added
+                if q.id == question_id and (include_deleted or not q.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         self.last_related = (question_id, limit)
@@ -78,8 +92,20 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         return None
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        return next((a for a in self.added if a.id == answer_id), None)
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        return next(
+            (
+                a
+                for a in self.added
+                if a.id == answer_id and (include_deleted or not a.is_deleted)
+            ),
+            None,
+        )
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
         related = [a for a in self.added if a.question_id == question_id]

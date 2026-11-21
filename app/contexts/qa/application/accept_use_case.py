@@ -62,7 +62,11 @@ class AcceptAnswerUseCase:
             answer.question_id, for_update=True
         )
         if question is None:
-            raise QuestionNotFoundError("问题不存在")  # 理论不可达（FK 保证），防御性
+            raise QuestionNotFoundError("问题不存在")
+        # 拿到父问题锁后重读 Answer，闭环并发软删回答窗口（F13 D4）
+        answer = await self._answer_repository.get_by_id(command.answer_id)
+        if answer is None:
+            raise AnswerNotFoundError("回答不存在")
         if question.author_id != command.actor_id:
             raise NotQuestionAuthorError("仅提问者可采纳答案")
         question.ensure_open("采纳")

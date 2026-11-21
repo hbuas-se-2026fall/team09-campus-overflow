@@ -1,6 +1,6 @@
 # CampusOverflow · F 系列工程标准与研发规范（F01–F20）
 
-> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F11`，规划中 `F12–F20` 及顺接 `F21`）。
+> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F12`，收口待合入 `F13`，规划中 `F14–F20` 及顺接 `F21`）。
 > 上位约束：[GOALS.md](../../GOALS.md)、[.github/workflows/ci.yml](../../.github/workflows/ci.yml)、[tests/test_architecture.py](../../tests/test_architecture.py)、[docs/sprint/review-checklist.md](../sprint/review-checklist.md)。
 
 ---
@@ -123,7 +123,7 @@
 
 ## 五、F01–F20 全量工程总表
 
-### 1. 已交付基线（F01–F11）
+### 1. 已交付基线（F01–F13）
 
 | 编号 | 名称 | 上下文 | 关键交付与修补 | 迁移 | 台账 |
 |:---|:---|:---|:---|:---|:---|
@@ -138,21 +138,21 @@
 | **F09** | 核心读路径性能与搜索索引升级 | `identity` + `qa` | `SqlAlchemyUserRepository` 合并为单条 4 步 `outerjoin`；`questions` 启用 `pg_trgm` 双 GIN 索引（`ix_questions_title_trgm`/`body_trgm`） | `ef84c7f8187e` | [F09-read-perf-and-trgm.md](../test/F09-read-perf-and-trgm.md) |
 | **F10** | 校园资料扩展与邮箱验证 | `identity` + `shared` | `users` 增 `nickname`/`college`/`class_name`/`email_verified`；新增 `PATCH /api/v1/auth/me/profile` 与邮箱验证码发送/确认接口（Redis HMAC + Lua） | `c451483b0660` | [F10-profile-and-email-verify.md](../test/F10-profile-and-email-verify.md) |
 | **F11** | 公开展示名供给面与个人主页 | `identity` + `qa` / `reputation` / `discovery` | `identity/application/ports.py` + `deps.py` 暴露 `UserSummaryReaderDep`/`PublicUserProfileReaderDep`；问答/评论/榜单/通知增量回填展示名；新增公开 `GET /api/v1/users/{user_id}/profile`（最小披露） | 无（复用 F10） | [F11-display-name-and-profile.md](../test/F11-display-name-and-profile.md) |
+| **F12** | 编辑回答（US-A02） | `qa` | `Answer.edit_body()`（限作者本人且问题未关闭）；仓储分离正文更新与采纳条件更新；新增 `PATCH /api/v1/answers/{id}`；含 Hardening 关贴并发锁序收口 | 无 | [F12-edit-answer.md](../test/F12-edit-answer.md) |
+| **F13** | 软删除与全链路过滤（收口待 PR 合入 `main`） | `qa` | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答/问题不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`（作者重复删幂等 204、删题退还开放悬赏）；全链路查询与 F06 六路统计全量剔除 | `c90363e3c1fb` | [F13-soft-delete.md](../test/F13-soft-delete.md) |
 
-> 当前基线契约规模：**30 paths / 33 operations**（[openapi.json](../../openapi.json)），CI 单测 **330 passed**（全量含集成 **524 passed**，总覆盖率 **83.60%**，domain **94%**）。
+> 当前基线契约规模：**31 paths / 36 operations**（[openapi.json](../../openapi.json)），CI 单测 **366 passed**（全量含集成 **579 passed**，总覆盖率 **82.76%**，domain **94%**；含 F12 已合入与 F13 收口实测口径）。
 
 ---
 
-### 2. 后续规划路线图（F12–F20，顺接 F21）
+### 2. 后续规划路线图（F14–F20，顺接 F21）
 
-> 阶段 A（性能收口与身份展示闭环 F08–F11）已全部交付并归入上表。
+> 阶段 A（F08–F11）及阶段 B 前半程（F12–F13）均已归入 §5.1 基线表（其中 F13 收口待 PR 合入 `main`）。
 
-#### 阶段 B：问答核心补齐与治理（F12–F15）
+#### 阶段 B：问答核心补齐与治理（待开发：F14–F15）
 
 | 编号 | 名称 | 核心工程内容 | 迁移 |
 |:---|:---|:---|:---|
-| **F12** | 编辑回答（US-A02，已交付 2026-11-18） | `Answer.edit_body()`（限作者本人且问题未关闭）；仓储分离正文更新与采纳条件更新；新增 `PATCH /api/v1/answers/{id}` | 否 |
-| **F13** | 软删除与全链路过滤（已预留） | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`；统一回改 F01–F06 所有查询与统计过滤 `deleted_at IS NULL` | 是 |
 | **F14** | 评论二级回复 | `comments` 增可空自引用 `parent_id`（同宿主校验），详情接口返回带 `parent_id` 的评论列表 | 是 |
 | **F15** | RBAC 扩展与教师认证回答 | `identity` 扩展 `ta`（助教）与 `admin` 角色；`answers` 增 `is_teacher_verified`，新增 `POST /api/v1/answers/{id}/verify`（`require_roles("teacher", "ta")`） | 是 |
 

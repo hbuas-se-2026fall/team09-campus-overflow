@@ -118,9 +118,22 @@ class QuestionRepository(Protocol):
         ...
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
-        """按问题 ID 查询；for_update=True 时对问题行加写锁（须在事务内持有至提交）。"""
+        """按问题 ID 查询；for_update=True 时对问题行加写锁（须在事务内持有至提交）。
+
+        默认过滤软删除行；include_deleted=True 仅限删除用例判定作者幂等 204 vs 非作者 404。
+        """
+        ...
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        """条件软删除问题（F13）：由未删迁移为已删返回 True；已删返回 False；
+        不存在抛 QuestionNotFoundError；已有采纳答案抛 AcceptedAnswerCannotDeleteError。
+        """
         ...
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
@@ -162,8 +175,20 @@ class AnswerRepository(Protocol):
         """F12：仅更新回答正文（与采纳条件更新分离，不触碰 is_accepted）。"""
         ...
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        """按回答 ID 查询（投票/采纳定位回答使用）。"""
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        """按回答 ID 查询（投票/采纳/编辑/删除定位回答使用）。
+
+        默认过滤自身已删或所属问题已删的回答；include_deleted=True 仅限删除用例读取。
+        """
+        ...
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        """条件软删除回答（F13）：父问题活跃且未采纳由未删迁移为已删返回 True；
+        父问题活跃且已删返回 False；不存在抛 AnswerNotFoundError；
+        父问题已删抛 QuestionNotFoundError；已采纳抛 AcceptedAnswerCannotDeleteError。
+        """
         ...
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:

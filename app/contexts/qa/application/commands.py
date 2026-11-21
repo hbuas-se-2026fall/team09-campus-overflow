@@ -98,3 +98,19 @@ class CreateBountyCommand:
     question_id: UUID
     teacher_id: UUID
     amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteQuestionCommand:
+    """软删除问题命令（F13）。actor_id 来自认证依赖，须为提问者。"""
+
+    question_id: UUID
+    actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteAnswerCommand:
+    """软删除回答命令（F13）。actor_id 来自认证依赖，须为回答者。"""
+
+    answer_id: UUID
+    actor_id: UUID

@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.contexts.qa.domain.errors import (
+    AcceptedAnswerCannotDeleteError,
     AnswerAlreadyAcceptedError,
     QuestionAlreadyClosedError,
     QuestionClosedError,
@@ -172,3 +173,53 @@ class TestQuestionEdit:
             question.edit_title_body(title_value="新标题", body_value="   ")
         assert question.title.value == "标题"  # 值对象先构后赋：失败无半改状态
         assert question.body.value == "正文"
+
+
+class TestQuestionSoftDelete:
+    """软删除（F13，D1–D3）：活跃/已关闭均可删、重复删幂等返回 False、已采纳拒绝（409）。"""
+
+    def test_soft_delete_open_question_sets_deleted_at_and_is_idempotent(self) -> None:
+        question = Question.ask(
+            title_value="PostgreSQL MVCC 如何通过 xmin/xmax 判断元组可见性？",
+            body_value=(
+                "在 READ COMMITTED 隔离级别下，每条语句生成新快照时如何结合 clog 判断事务状态？"
+            ),
+            author_id=uuid4(),
+        )
+        assert question.is_deleted is False
+
+        first = question.soft_delete()
+        first_at = question.deleted_at
+
+        assert first is True
+        assert question.is_deleted is True
+        assert first_at is not None and first_at.tzinfo is not None
+
+        second = question.soft_delete()
+        assert second is False
+        assert question.deleted_at == first_at
+
+    def test_soft_delete_closed_question_allowed(self) -> None:
+        question = Question.ask(
+            title_value="B+ 树索引分裂时右兄弟指针的作用是什么？",
+            body_value="高并发范围扫描与页面分裂同时发生时如何避免漏读？",
+            author_id=uuid4(),
+        )
+        question.close()
+
+        assert question.soft_delete() is True
+        assert question.is_deleted is True
+
+    def test_soft_delete_with_accepted_answer_rejected(self) -> None:
+        question = Question.ask(
+            title_value="为什么第三范式要求非主属性对候选键不存在传递函数依赖？",
+            body_value="请结合选课关系表说明插入异常与删除异常的消除。",
+            author_id=uuid4(),
+        )
+        question.mark_accepted(uuid4())
+
+        with pytest.raises(AcceptedAnswerCannotDeleteError, match="已有采纳答案"):
+            question.soft_delete()
+
+        assert question.is_deleted is False
+        assert question.deleted_at is None
