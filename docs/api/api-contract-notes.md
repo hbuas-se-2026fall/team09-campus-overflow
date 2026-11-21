@@ -110,7 +110,7 @@
   - 成功 201，返回 `{id,question_id,teacher_id,amount,status:"open",created_at,settled_at:null}`
 - `GET /api/v1/questions/{id}/bounty`：公开；返回进行中悬赏，无悬赏 → `200 null`；问题不存在 → 404
 - `GET /api/v1/users/me/points`：需登录（401）；返回 `{balance, entries: [{source, event_id, delta, reason, occurred_at}]}`；教师首次访问惰性开户并发放 100 初始分，学生只读既有余额与流水
-- 资金流：发起时冻结积分；采纳时结算给答主；关闭且未采纳时全额退款（各只发生一次）
+- 资金流：发起时冻结积分；采纳时结算给答主；关闭或软删除且未采纳时全额退款（各只发生一次）
 - 积分与声誉分离；教师初始额度 100 分，首版无充值/发放端点
 
 ## 四点十二、校园资料更新与邮箱验证（F10）

@@ -32,8 +32,8 @@
 | 模块 | 已交付能力 |
 |:---|:---|
 | **身份与认证（`identity`）** | 学生（学号 + 邮箱）/ 教师（工号）分流注册（bcrypt 哈希）；JWT 双令牌（Access 15min + Refresh 7d Redis `GETDEL` 原子轮换与吊销）；登录失败锁定（5 次/15min → `423`）；校园资料局部更新（`UNSET` 哨兵 + 显式 `null` 清空）；HMAC + Redis Lua 邮箱验证码；公开个人名片最小披露与批量展示名供给面 |
-| **问答与检索（`qa`）** | 提问（至多 5 个标签）、编辑与终态关闭（关闭后投票/回答/评论/采纳/编辑全冻结）；多维筛选（标签 AND、状态、时区闭区间、`latest`/`votes` 排序）与 `pg_trgm` GIN 全文模糊检索；标签共现相关问题推荐；回答、一人一票防并发投票、一题一采纳（部分唯一索引兜底）；问题/回答评论 |
-| **激励与成长（`qa` + `reputation`）** | 教师初始积分与悬赏生命周期（发起冻结 → 采纳结算 → 关贴退款）；Celery 异步声誉记账（`(source, event_id)` 唯一索引幂等 + `acks_late`）；周/月/学期净得分排行榜（`Asia/Shanghai` 窗口 + `RANK()` 竞争排名 + 60s Redis 热榜缓存与故障降级）；实时用户徽章（回答数/采纳率/最长连续活跃） |
+| **问答与检索（`qa`）** | 提问（至多 5 个标签）、编辑与终态关闭（关闭后投票/回答/评论/采纳/编辑全冻结）；问题/回答软删除与全链路过滤；多维筛选（标签 AND、状态、时区闭区间、`latest`/`votes` 排序）与 `pg_trgm` GIN 全文模糊检索；标签共现相关问题推荐；回答（含编辑）、一人一票防并发投票、一题一采纳（部分唯一索引兜底）；问题/回答评论 |
+| **激励与成长（`qa` + `reputation`）** | 教师初始积分与悬赏生命周期（发起冻结 → 采纳结算 → 关贴/删题退款）；Celery 异步声誉记账（`(source, event_id)` 唯一索引幂等 + `acks_late`）；周/月/学期净得分排行榜（`Asia/Shanghai` 窗口 + `RANK()` 竞争排名 + 60s Redis 热榜缓存与故障降级）；实时用户徽章（回答数/采纳率/最长连续活跃） |
 | **站内通知（`discovery`）** | 新回答、回答被采纳、新评论同事务幂等写入（跳过自操作）；分页列表、未读筛选、单条/全部已读、未读计数，携带 `question_id` 与实时 `actor_name` |
 | **契约与前端（`frontend`）** | 契约优先开发（[openapi.json](openapi.json) 与代码 CI 防漂移校验）；React 18 + TypeScript + Ant Design + React Query + Zustand 实现注册、登录、问题广场、详情互动、提问、标签与个人声誉页 |
 
@@ -232,7 +232,7 @@ pnpm dev          # Vite 默认代理 /api -> http://localhost:8123（可用 VIT
 | 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **366 passed**，总覆盖率 **82.76%**（≥ 70%） |
 | 后端 | 核心聚合覆盖率 | `python -m coverage report --include="*/domain/*" --fail-under=90` | **94%**（≥ 90%） |
 | 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（31 paths / 36 ops） |
-| 后端 | 定向集成回归 + 真实冒烟 | 定向 6 文件集成回归 + 真实 Uvicorn 冒烟 | 集成回归 **22 passed**；冒烟 **8/8 PASS**（全量集成待按需运行） |
+| 后端 | 全量集成回归 + 并发 + 真实冒烟 | `pytest -m integration` + 2 轮 `test_soft_delete_api.py` + 真实 Uvicorn 冒烟 | 全量集成 **213 passed**（合计 **579 passed**）；并发 2 轮 **4 passed × 2**；冒烟 **8/8 PASS** |
 | 前端 | 类型 / 测试 / 构建 / Lint | `pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint` | 由 `frontend` Job 门禁保障 |
 
 ---
@@ -286,11 +286,11 @@ CampusOverflow/
 | [docs/domain/](docs/domain) | 限界上下文图、聚合清单、统一语言术语表 |
 | [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md) | 前端消费指南、错误形态速查与接口语义口径 |
 | [docs/sprint/](docs/sprint) | 故事地图、Product Backlog、Gherkin 验收标准、PR 评审与 Retro |
-| [docs/test/](docs/test) | 各阶段与 F01–F12 开发测试台账（含并发竞态与暴力测试实证） |
+| [docs/test/](docs/test) | 各阶段与 F01–F13 开发测试台账（含并发竞态与暴力测试实证） |
 | [docs/plan/phase3-plan.md](docs/plan/phase3-plan.md) | 阶段 3 实施计划 v3 |
 
 ---
 
 ## 当前版本
 
-`v0.1.0` —— 阶段 0–3 已收口，F 系列增量特性已交付 **F01–F12**（阶段 4 容器化上线待推进）。
+`v0.1.0` —— 阶段 0–3 已收口，F 系列增量特性已交付 **F01–F13**（阶段 4 容器化上线待推进）。

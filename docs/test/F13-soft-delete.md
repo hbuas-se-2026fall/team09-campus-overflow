@@ -2,7 +2,7 @@
 
 > 日期：2026-11-19 · 上下文：`qa` · 依赖：F01–F03（筛选/搜索/相关）、F06（徽章统计）、F07（悬赏退款）、F12（回答编辑）
 > 裁定：D1 删除权限与幂等矩阵（403 先于 409；作者重复删 204、非作者 404；父问题已删统一 404）· D2 选 B（已采纳回答及含采纳答案的问题均不可删 → 409，单异常 `AcceptedAnswerCannotDeleteError`）· D3 删含开放悬赏问题同事务全额退款，重复删不二次退；已关闭问题本体及关闭问题下回答允许作者软删除（内容回收例外）· D4 `AnswerRepository.get_by_id`/`list_by_question` JOIN 过滤父问题 `deleted_at`，5 条答入口写用例统一“锁父问题后重读 Answer”，`parent is None` 一律 404 · D5 徽章统计全量剔除（含 6 路活跃日 UNION，历史连续活跃天数可下降）· D6 三处条件 `UPDATE` 加 `deleted_at IS NULL` 并精准转译 404/409 · D7 `soft_delete` 独立成端口返回 `bool` 门控退款，`QuestionRepository.get_by_id` 补 `populate_existing=True`，`EditQuestionUseCase` 补 `for_update=True` · D8 `_apply_filters` 在 `filters is None` 早退前强制过滤，`list_related` 补过滤 · D9 契约 `31 paths / 36 operations`，迁移 `c90363e3c1fb` 仅加两列不动既有索引 · D10 Non-Goals
-> 分支/工作区：`feat/f13-soft-delete`（未 commit，待 PR 合入 `main`）
+> 分支/工作区：`feat/f13-soft-delete`（主实现已提交 `1b9fd20`，已合并 `origin/main` `6fd822b` 至 `41c3642`，收口文档待批准提交并 PR 合入 `main`）
 
 ## 一、交付范围
 
@@ -51,7 +51,8 @@
 | 迁移往返与零漂移 | `alembic upgrade head` → `downgrade -1` → `upgrade head` → `current` → `check`（`DB_PORT=15432`） | `c90363e3c1fb (head)`，`No new upgrade operations detected.` |
 | 定向集成回归（F13 + 受影响 F06/F07/F12） | `.venv\Scripts\pytest.exe tests/contexts/qa/infrastructure/test_soft_delete_repository.py tests/contexts/qa/interfaces/test_soft_delete_api.py tests/contexts/qa/infrastructure/test_edit_answer_repository.py tests/contexts/qa/interfaces/test_edit_answer_api.py tests/contexts/qa/interfaces/test_badges_api.py tests/contexts/qa/interfaces/test_bounty_api.py -q` | **22 passed**（55.89s） |
 | 真实服务冒烟测试 | 真实 `uvicorn app.main:app`（`127.0.0.1:18123`，连 PG `15432` + Redis `16379`）8 组端到端闭环（46 条 HTTP 请求） | **8/8 PASS**，服务端日志零 500 / 零异常栈 |
-| 全量集成套件（`pytest -m integration`） | 按用户指令「先不进行全量测试，只进行回归测试和冒烟测试」 | **未验证**（待合入前或按需执行） |
+| 全量集成套件（2026-11-21 合并 `origin/main` 后补跑） | `.venv\Scripts\pytest.exe -m integration -q`（PG `127.0.0.1:15432` + Redis `127.0.0.1:16379`，库在 `c90363e3c1fb (head)` 且 `alembic check` 零漂移） | **213 passed**, 366 deselected（270.07s，合计 **579 passed**；注：首轮 `localhost` 偶发 1 例 5s 建连超时 503 抖动，切换 `127.0.0.1` 复跑 213/213 全绿） |
+| 并发实证连续 2 轮（2026-11-21） | `.venv\Scripts\pytest.exe tests/contexts/qa/interfaces/test_soft_delete_api.py -q`（连续执行 2 轮） | 第 1 轮 **4 passed**（22.73s）；第 2 轮 **4 passed**（22.18s），零偶发失败 |
 
 ### 测试数据知识来源（遵循真实知识测试数据规范）
 - PostgreSQL B-Tree Indexes Implementation（MVCC、去重、HOT、Bottom-Up Index Deletion）：`https://www.postgresql.org/docs/current/btree-implementation.html`
@@ -76,4 +77,5 @@
 - [x] 单元 + 定向集成 + 并发测试写入 `tests/` 并实测通过；端到端真实冒烟测试全绿
 - [x] `openapi.json` 与 `tests/test_contract.py` 已同步且过 `--check`
 - [x] 本台账、`docs/PROGRESS.md`、`docs/api/api-contract-notes.md`、`README.md`、`docs/plan/f-engineering-standard.md` 已同步
-- [ ] 全量集成测试（按用户要求本轮未跑）与经批准推送 `feat/f13-soft-delete` 提 PR 及 Actions 全绿
+- [x] 全量集成回归（`pytest -m integration` 213 passed）与并发实证连续 2 轮（4 passed × 2）通过
+- [ ] 经批准推送 `feat/f13-soft-delete` 提 PR 及 Actions 全绿
