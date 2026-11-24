@@ -1,6 +1,6 @@
 # CampusOverflow · F 系列工程标准与研发规范（F01–F20）
 
-> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F12`，收口待合入 `F13`，规划中 `F14–F20` 及顺接 `F21`）。
+> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F13`，已收口待 PR 合入 `F14`，规划中 `F15–F20` 及顺接 `F21`）。
 > 上位约束：[GOALS.md](../../GOALS.md)、[.github/workflows/ci.yml](../../.github/workflows/ci.yml)、[tests/test_architecture.py](../../tests/test_architecture.py)、[docs/sprint/review-checklist.md](../sprint/review-checklist.md)。
 
 ---
@@ -123,7 +123,7 @@
 
 ## 五、F01–F20 全量工程总表
 
-### 1. 已交付基线（F01–F13）
+### 1. 已交付基线（F01–F14）
 
 | 编号 | 名称 | 上下文 | 关键交付与修补 | 迁移 | 台账 |
 |:---|:---|:---|:---|:---|:---|
@@ -139,22 +139,22 @@
 | **F10** | 校园资料扩展与邮箱验证 | `identity` + `shared` | `users` 增 `nickname`/`college`/`class_name`/`email_verified`；新增 `PATCH /api/v1/auth/me/profile` 与邮箱验证码发送/确认接口（Redis HMAC + Lua） | `c451483b0660` | [F10-profile-and-email-verify.md](../test/F10-profile-and-email-verify.md) |
 | **F11** | 公开展示名供给面与个人主页 | `identity` + `qa` / `reputation` / `discovery` | `identity/application/ports.py` + `deps.py` 暴露 `UserSummaryReaderDep`/`PublicUserProfileReaderDep`；问答/评论/榜单/通知增量回填展示名；新增公开 `GET /api/v1/users/{user_id}/profile`（最小披露） | 无（复用 F10） | [F11-display-name-and-profile.md](../test/F11-display-name-and-profile.md) |
 | **F12** | 编辑回答（US-A02） | `qa` | `Answer.edit_body()`（限作者本人且问题未关闭）；仓储分离正文更新与采纳条件更新；新增 `PATCH /api/v1/answers/{id}`；含 Hardening 关贴并发锁序收口 | 无 | [F12-edit-answer.md](../test/F12-edit-answer.md) |
-| **F13** | 软删除与全链路过滤（收口待 PR 合入 `main`） | `qa` | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答/问题不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`（作者重复删幂等 204、删题退还开放悬赏）；全链路查询与 F06 六路统计全量剔除 | `c90363e3c1fb` | [F13-soft-delete.md](../test/F13-soft-delete.md) |
+| **F13** | 软删除与全链路过滤 | `qa` | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答/问题不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`（作者重复删幂等 204、删题退还开放悬赏）；全链路查询与 F06 六路统计全量剔除 | `c90363e3c1fb` | [F13-soft-delete.md](../test/F13-soft-delete.md) |
+| **F14** | 评论二级回复（已收口待 PR 合入 `main`） | `qa` + `discovery` | `comments` 增可空自引用 `parent_id`（`fk_comments_parent_id` `RESTRICT` + `ix_comments_parent_id` + `ck_comments_no_self_parent`）；严格两级树（跨宿主/三级 422、父不存在 404）；详情与编辑回答平铺有序返回 `parent_id`；`discovery` 新增 `comment_replied` / `comment` 通知类型并实现同人去重 | `609aeba713d3` | [F14-comment-replies.md](../test/F14-comment-replies.md) |
 
-> 当前基线契约规模：**31 paths / 36 operations**（[openapi.json](../../openapi.json)），CI 单测 **366 passed**（全量含集成 **579 passed**，总覆盖率 **82.76%**，domain **94%**；含 F12 已合入与 F13 收口实测口径）。
+> 当前基线契约规模：**31 paths / 36 operations**（[openapi.json](../../openapi.json)），CI 单测 **382 passed**（总覆盖率 **82.87%**，domain **94%**；F14 定向集成与并发 2 轮 **5 passed × 2**；全量集成 `pytest -m integration` 按用户裁定延至大板块 1（F14–F15 / `v1.1.0`）收口时统一执行）。
 
 ---
 
-### 2. 后续规划路线图（F14–F20，顺接 F21）
+### 2. 后续规划路线图（F15–F20，顺接 F21）
 
-> 阶段 A（F08–F11）及阶段 B 前半程（F12–F13）均已归入 §5.1 基线表（其中 F13 收口待 PR 合入 `main`）。
+> 阶段 A（F08–F11）及阶段 B 前三项（F12–F14）均已归入 §5.1 基线表（其中 F14 已收口待 PR 合入 `main`）。
 
-#### 阶段 B：问答核心补齐与治理（待开发：F14–F15）
+#### 阶段 B：问答核心补齐与治理（待开发：F15）
 
 | 编号 | 名称 | 核心工程内容 | 迁移 |
 |:---|:---|:---|:---|
-| **F14** | 评论二级回复 | `comments` 增可空自引用 `parent_id`（同宿主校验），详情接口返回带 `parent_id` 的评论列表 | 是 |
-| **F15** | RBAC 扩展与教师认证回答 | `identity` 扩展 `ta`（助教）与 `admin` 角色；`answers` 增 `is_teacher_verified`，新增 `POST /api/v1/answers/{id}/verify`（`require_roles("teacher", "ta")`） | 是 |
+| **F15** | RBAC 扩展与教师认证回答 | `identity` 扩展 `ta`（助教）与 `admin` 角色；`answers` 增 `is_teacher_verified`，新增 `POST /api/v1/answers/{id}/verify`（`require_roles("teacher", "ta", "admin")`） | 是 |
 
 #### 阶段 C：课程上下文与内容审核（F16–F18）
 

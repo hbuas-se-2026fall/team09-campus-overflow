@@ -52,12 +52,13 @@ class AcceptAnswerCommand:
 
 @dataclass(frozen=True, slots=True)
 class CreateCommentCommand:
-    """评论用例的输入命令。author_id 来自认证依赖，绝不来自请求体（US-C01）。"""
+    """评论用例的输入命令。author_id 来自认证依赖，绝不来自请求体（US-C01 / F14）。"""
 
     target_type: CommentTarget
     target_id: UUID
     body: str
     author_id: UUID
+    parent_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)

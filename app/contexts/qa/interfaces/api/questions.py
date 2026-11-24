@@ -421,7 +421,7 @@ async def vote_answer(
     "/{question_id}/comments",
     response_model=CommentResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="对问题发表评论（登录用户，US-C01）",
+    summary="对问题发表评论或二级回复（登录用户，US-C01 / F14）",
 )
 async def comment_question(
     question_id: UUID,
