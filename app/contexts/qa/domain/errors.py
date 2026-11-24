@@ -13,6 +13,10 @@ class AnswerNotFoundError(QADomainError):
     """目标回答不存在（路由层转 404）。"""
 
 
+class CommentNotFoundError(QADomainError):
+    """目标父评论不存在（F14，路由层转 404）。"""
+
+
 class AlreadyVotedError(QADomainError):
     """同一用户对同一目标已有票：一人一票不变式（v3 裁定 #5：不可改票，路由层转 409）。"""
 

@@ -19,6 +19,7 @@ from app.platform.http.error_mapping import make_domain_error_handler
 QA_ERROR_STATUS: dict[type[Exception], int] = {
     qa_errors.QuestionNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.AnswerNotFoundError: status.HTTP_404_NOT_FOUND,
+    qa_errors.CommentNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.NotQuestionAuthorError: status.HTTP_403_FORBIDDEN,
     qa_errors.NotAnswerAuthorError: status.HTTP_403_FORBIDDEN,
     qa_errors.AlreadyVotedError: status.HTTP_409_CONFLICT,

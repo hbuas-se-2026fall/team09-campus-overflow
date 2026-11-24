@@ -86,7 +86,7 @@ async def create_comment_on_target(
     comments: CommentRepo,
     notification_writer: NotificationWriterDep,
 ) -> CommentResponse:
-    """题评/答评端点共用：成功 201 + 白名单；目标不存在 404；正文兜底 422。"""
+    """题评/答评端点共用：成功 201 + 白名单；目标/父评论不存在 404；跨宿主/三级/正文兜底 422。"""
     use_case = CreateCommentUseCase(questions, answers, comments, notification_writer)
     comment = await use_case.execute(
         CreateCommentCommand(
@@ -94,6 +94,7 @@ async def create_comment_on_target(
             target_id=target_id,
             body=payload.body,
             author_id=user_id,  # 作者只取令牌，绝不取自请求体
+            parent_id=payload.parent_id,
         )
     )
     return comment_response(comment, author_name=author_name)
@@ -105,6 +106,7 @@ def comment_response(comment: Comment, *, author_name: str) -> CommentResponse:
         body=comment.body.value,
         author_id=comment.author_id,
         author_name=author_name,
+        parent_id=comment.parent_id,
         created_at=comment.created_at,
     )
 

@@ -103,7 +103,7 @@ async def delete_answer(
     "/{answer_id}/comments",
     response_model=CommentResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="对回答发表评论（登录用户，US-C01）",
+    summary="对回答发表评论或二级回复（登录用户，US-C01 / F14）",
 )
 async def comment_answer(
     answer_id: UUID,

@@ -61,20 +61,24 @@ class VoteRequest(BaseModel):
 
 
 class CommentRequest(BaseModel):
-    """评论请求体（US-C01）：正文复用 Body 值对象约束（v3 自裁：1~5000 字）。"""
+    """评论请求体（US-C01 / F14）：正文复用 Body 约束（1~5000 字），
+    可选 parent_id 指向一级父评论。
+    """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     body: str = Field(min_length=1, max_length=5000)
+    parent_id: UUID | None = None
 
 
 class CommentResponse(BaseModel):
-    """评论白名单（按时间正序返回，1.3 功能域 9）。"""
+    """评论白名单（平铺按时间正序返回，1.3 功能域 9 / F14 D1）。"""
 
     id: UUID
     body: str
     author_id: UUID
     author_name: str
+    parent_id: UUID | None = None
     created_at: datetime
 
 

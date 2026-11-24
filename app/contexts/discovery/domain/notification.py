@@ -9,18 +9,20 @@ from uuid import UUID, uuid4
 
 
 class NotificationType(StrEnum):
-    """三类基础通知（2.3.4）：新回答、回答被采纳、新评论。"""
+    """站内通知类型（F04 基础三类 + F14 评论二级回复）。"""
 
     ANSWER_POSTED = "answer_posted"
     ANSWER_ACCEPTED = "answer_accepted"
     COMMENT_CREATED = "comment_created"
+    COMMENT_REPLIED = "comment_replied"
 
 
 class NotificationTargetType(StrEnum):
-    """通知指向的资源类型。"""
+    """通知指向的资源类型（F04 问题/回答 + F14 评论）。"""
 
     QUESTION = "question"
     ANSWER = "answer"
+    COMMENT = "comment"
 
 
 @dataclass(frozen=True, slots=True)

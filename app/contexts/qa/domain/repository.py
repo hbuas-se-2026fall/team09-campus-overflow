@@ -214,10 +214,14 @@ class VoteRepository(Protocol):
 
 
 class CommentRepository(Protocol):
-    """评论持久化端口：domain 定义接口，infrastructure 实现（迭代 3，US-C01）。"""
+    """评论持久化端口：domain 定义接口，infrastructure 实现（迭代 3，US-C01 / F14）。"""
 
     async def add(self, comment: Comment) -> None:
         """新增评论（多态 target：题评挂 Question、答评挂 Answer）。"""
+        ...
+
+    async def get_by_id(self, comment_id: UUID) -> Comment | None:
+        """按评论 ID 查询（F14 校验二级回复的父评论存在性、归属与层级）。"""
         ...
 
     async def list_by_target(

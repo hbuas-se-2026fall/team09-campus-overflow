@@ -152,3 +152,17 @@ class TestContractConventions:
             assert "status" in question_schema["required"]
             status_ref = question_schema["properties"]["status"]["$ref"]
             assert status_ref == "#/components/schemas/QuestionStatus"
+
+    def test_comment_schemas_expose_nullable_parent_id(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        req_props = schemas["CommentRequest"]["properties"]
+        resp_props = schemas["CommentResponse"]["properties"]
+        assert "parent_id" in req_props
+        assert "parent_id" in resp_props
+        assert schemas["CommentRequest"].get("additionalProperties") is False
+        for prop in (req_props["parent_id"], resp_props["parent_id"]):
+            any_of = prop.get("anyOf", [])
+            assert {"type": "string", "format": "uuid"} in any_of
+            assert {"type": "null"} in any_of

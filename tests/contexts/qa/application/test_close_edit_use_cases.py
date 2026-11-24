@@ -143,6 +143,9 @@ class FakeCommentRepository:
     async def add(self, comment: Comment) -> None:
         self.added.append(comment)
 
+    async def get_by_id(self, comment_id: UUID) -> Comment | None:
+        return next((c for c in self.added if c.id == comment_id), None)
+
     async def list_by_target(
         self, target_type: CommentTarget, target_id: UUID
     ) -> list[Comment]:

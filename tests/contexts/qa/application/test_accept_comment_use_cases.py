@@ -19,12 +19,15 @@ from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.errors import (
     AnswerAlreadyAcceptedError,
     AnswerNotFoundError,
+    CommentNotFoundError,
     NotQuestionAuthorError,
+    QuestionClosedError,
     QuestionNotFoundError,
 )
-from app.contexts.qa.domain.question import Question
+from app.contexts.qa.domain.question import Question, QuestionStatus
 from app.contexts.qa.domain.repository import QuestionSort
 from app.contexts.qa.domain.value_objects import Body, Title
+from app.shared.errors import DomainValidationError
 
 
 class FakeQuestionRepository:
@@ -107,6 +110,9 @@ class FakeCommentRepository:
 
     async def add(self, comment: Comment) -> None:
         self.added.append(comment)
+
+    async def get_by_id(self, comment_id: UUID) -> Comment | None:
+        return next((c for c in self.added if c.id == comment_id), None)
 
     async def list_by_target(
         self, target_type: CommentTarget, target_id: UUID
@@ -383,3 +389,181 @@ async def test_comment_and_accept_reread_answer_after_parent_lock() -> None:
             AcceptAnswerCommand(answer_id=answer.id, actor_id=question.author_id)
         )
     assert a_repo.updated == [] and q_repo.updated == []
+
+
+# ---------------- F14 评论二级回复用例分支 ----------------
+
+
+async def test_reply_on_question_and_answer_comment_persists() -> None:
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    question = _question()
+    answer = _answer(question.id)
+    q_repo.added = [question]
+    a_repo.added = [answer]
+    use_case = CreateCommentUseCase(q_repo, a_repo, c_repo)
+
+    q_root = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.QUESTION,
+            target_id=question.id,
+            body="题评一级评论",
+            author_id=uuid4(),
+        )
+    )
+    q_reply = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.QUESTION,
+            target_id=question.id,
+            body="题评二级回复",
+            author_id=uuid4(),
+            parent_id=q_root.id,
+        )
+    )
+    assert q_reply.parent_id == q_root.id
+    assert q_reply.events[0].parent_id == q_root.id
+
+    a_root = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.ANSWER,
+            target_id=answer.id,
+            body="答评一级评论",
+            author_id=uuid4(),
+        )
+    )
+    a_reply = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.ANSWER,
+            target_id=answer.id,
+            body="答评二级回复",
+            author_id=uuid4(),
+            parent_id=a_root.id,
+        )
+    )
+    assert a_reply.parent_id == a_root.id
+    assert all(flag is True for _, flag in q_repo.for_update_calls)
+
+
+async def test_reply_missing_parent_raises_comment_not_found_404() -> None:
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    question = _question()
+    q_repo.added = [question]
+
+    with pytest.raises(CommentNotFoundError, match="评论不存在"):
+        await CreateCommentUseCase(q_repo, a_repo, c_repo).execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.QUESTION,
+                target_id=question.id,
+                body="回复不存在的父评论",
+                author_id=uuid4(),
+                parent_id=uuid4(),
+            )
+        )
+    assert c_repo.added == []
+
+
+async def test_reply_cross_host_and_third_level_raise_422() -> None:
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    q1, q2 = _question(), _question()
+    a1 = _answer(q1.id)
+    q_repo.added = [q1, q2]
+    a_repo.added = [a1]
+    use_case = CreateCommentUseCase(q_repo, a_repo, c_repo)
+
+    root_on_q1 = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.QUESTION,
+            target_id=q1.id,
+            body="q1 一级评论",
+            author_id=uuid4(),
+        )
+    )
+    reply_on_q1 = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.QUESTION,
+            target_id=q1.id,
+            body="q1 二级回复",
+            author_id=uuid4(),
+            parent_id=root_on_q1.id,
+        )
+    )
+
+    # 跨问题回复 → 422
+    with pytest.raises(DomainValidationError, match="父评论不属于当前对象"):
+        await use_case.execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.QUESTION,
+                target_id=q2.id,
+                body="跨问题回复",
+                author_id=uuid4(),
+                parent_id=root_on_q1.id,
+            )
+        )
+
+    # 跨 target_type（用题评做答评父评论）→ 422
+    with pytest.raises(DomainValidationError, match="父评论不属于当前对象"):
+        await use_case.execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.ANSWER,
+                target_id=a1.id,
+                body="跨类型回复",
+                author_id=uuid4(),
+                parent_id=root_on_q1.id,
+            )
+        )
+
+    # 三级回复 → 422
+    with pytest.raises(DomainValidationError, match="评论仅支持二级回复，不可回复二级评论"):
+        await use_case.execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.QUESTION,
+                target_id=q1.id,
+                body="三级回复被拒",
+                author_id=uuid4(),
+                parent_id=reply_on_q1.id,
+            )
+        )
+    assert len(c_repo.added) == 2
+
+
+async def test_reply_on_closed_question_raises_409_before_parent_check() -> None:
+    q_repo, a_repo, c_repo = (
+        FakeQuestionRepository(),
+        FakeAnswerRepository(),
+        FakeCommentRepository(),
+    )
+    question = _question()
+    q_repo.added = [question]
+    use_case = CreateCommentUseCase(q_repo, a_repo, c_repo)
+    root = await use_case.execute(
+        CreateCommentCommand(
+            target_type=CommentTarget.QUESTION,
+            target_id=question.id,
+            body="关贴前的一级评论",
+            author_id=uuid4(),
+        )
+    )
+    question.status = QuestionStatus.CLOSED
+
+    with pytest.raises(QuestionClosedError):
+        await use_case.execute(
+            CreateCommentCommand(
+                target_type=CommentTarget.QUESTION,
+                target_id=question.id,
+                body="关贴后尝试二级回复",
+                author_id=uuid4(),
+                parent_id=root.id,
+            )
+        )
+    assert len(c_repo.added) == 1

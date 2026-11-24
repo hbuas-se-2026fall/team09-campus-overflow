@@ -144,10 +144,11 @@ class VoteModel(Base):
 
 
 class CommentModel(Base):
-    """comments 表：Comment 实体持久化（迭代 3，US-C01）。
+    """comments 表：Comment 实体持久化（迭代 3，US-C01 / F14 二级回复）。
 
     多态 target（题评挂 question / 答评挂 answer），与 votes 同模式不做库级外键，
-    存在性由用例检查；宿主删除的清理语义随 Q08 定稿（台账遗留③同口径）。
+    存在性由用例检查；F14 新增可空自引用 parent_id（RESTRICT 防误删父评论，
+    CHECK 禁止自引用，二级上限由领域层校验）。
     """
 
     __tablename__ = "comments"
@@ -162,6 +163,11 @@ class CommentModel(Base):
         nullable=False,
         index=True,
     )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("comments.id", name="fk_comments_parent_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -169,6 +175,12 @@ class CommentModel(Base):
     __table_args__ = (
         # 评论列表按 (target, created_at 正序) 读取（1.3 功能域 9）
         Index("ix_comments_target_created", "target_type", "target_id", "created_at"),
+        # F14：父评论反查索引与禁止自引用库级兜底
+        Index("ix_comments_parent_id", "parent_id"),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id",
+            name="ck_comments_no_self_parent",
+        ),
     )
 
 
