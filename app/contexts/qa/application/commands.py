@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.contexts.qa.domain.comment import CommentTarget
+from app.contexts.qa.domain.report import ReportAction, ReportTargetType
 from app.contexts.qa.domain.vote import VoteDirection, VoteTarget
 from app.shared.sentinel import UNSET, UnsetType
 
@@ -135,3 +136,23 @@ class UnverifyAnswerCommand:
     """取消回答认证命令（F15）。"""
 
     answer_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CreateReportCommand:
+    """提交内容举报命令（F18）。"""
+
+    reporter_id: UUID
+    target_type: ReportTargetType
+    target_id: UUID
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolveReportCommand:
+    """管理员处置举报命令（F18）。"""
+
+    report_id: UUID
+    admin_id: UUID
+    action: ReportAction
+    note: str | None = None

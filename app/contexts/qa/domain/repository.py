@@ -10,6 +10,13 @@ from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.bounty import Bounty, PointsEntry
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question, QuestionStatus
+from app.contexts.qa.domain.report import (
+    Report,
+    ReportAction,
+    ReportStatus,
+    ReportTargetType,
+    ResolutionNote,
+)
 from app.contexts.qa.domain.tag import _MAX_TAGS_PER_QUESTION, Tag
 from app.contexts.qa.domain.vote import Vote, VoteTarget
 from app.shared.errors import DomainValidationError
@@ -334,4 +341,40 @@ class CourseLeaderboardRepository(Protocol):
         self, course_id: UUID, *, limit: int
     ) -> list[CourseLeaderboardEntry]:
         """按采纳数降序、净赞数降序聚合课程答主贡献排名。"""
+        ...
+
+
+class ReportRepository(Protocol):
+    """内容举报持久化端口（F18，ISP 独立端口）。"""
+
+    async def add(self, report: Report) -> None:
+        """新增举报；待处理重复举报由部分唯一索引兜底抛 DuplicatePendingReportError。"""
+        ...
+
+    async def get_by_id(self, report_id: UUID) -> Report | None:
+        """按 ID 查询举报；不存在返回 None。"""
+        ...
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: ReportStatus | None = None,
+        target_type: ReportTargetType | None = None,
+    ) -> tuple[list[Report], int]:
+        """分页列出举报，返回（当前页列表，总条数）。"""
+        ...
+
+    async def resolve_pending(
+        self,
+        *,
+        report_id: UUID,
+        new_status: ReportStatus,
+        action: ReportAction,
+        note: ResolutionNote | None,
+        resolved_by: UUID,
+        resolved_at: datetime,
+    ) -> Report:
+        """条件抢占 pending 举报；不存在抛 404，已处置抛 409。"""
         ...

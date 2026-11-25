@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.contexts.qa.domain.report import Report, ReportStatus, ReportTargetType
 from app.contexts.qa.domain.repository import (
     CourseLeaderboardEntry,
     QuestionFilter,
@@ -53,3 +54,24 @@ class CourseLeaderboardView:
     course_code: str
     course_name: str
     entries: list[CourseLeaderboardEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class ListReportsQuery:
+    """管理员分页查询举报列表参数（F18）。"""
+
+    page: int = 1
+    page_size: int = 20
+    status: ReportStatus | None = None
+    target_type: ReportTargetType | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ListReportsResult:
+    """举报列表分页结果（total_pages = ceil(total/page_size)，空库为 0）。"""
+
+    items: list[Report]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
