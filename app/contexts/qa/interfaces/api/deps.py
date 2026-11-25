@@ -34,6 +34,7 @@ from app.contexts.qa.domain.repository import (
     CourseLeaderboardRepository,
     PointsRepository,
     QuestionRepository,
+    ReportRepository,
     TagCatalogRepository,
     UserActivityRepository,
     VoteRepository,
@@ -46,6 +47,7 @@ from app.contexts.qa.infrastructure.course_leaderboard_repository import (
 )
 from app.contexts.qa.infrastructure.points_repository import SqlAlchemyPointsRepository
 from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
+from app.contexts.qa.infrastructure.report_repository import SqlAlchemyReportRepository
 from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
 from app.contexts.qa.infrastructure.user_activity_repository import (
     SqlAlchemyUserActivityRepository,
@@ -137,6 +139,10 @@ def get_course_leaderboard_repository(
     return SqlAlchemyCourseLeaderboardRepository(session)
 
 
+def get_report_repository(session: SessionDep) -> ReportRepository:
+    return SqlAlchemyReportRepository(session)
+
+
 QuestionRepo = Annotated[QuestionRepository, Depends(get_question_repository)]
 AnswerRepo = Annotated[AnswerRepository, Depends(get_answer_repository)]
 VoteRepo = Annotated[VoteRepository, Depends(get_vote_repository)]
@@ -158,3 +164,4 @@ CourseAccessReaderDep = Annotated[
 CourseLeaderboardRepo = Annotated[
     CourseLeaderboardRepository, Depends(get_course_leaderboard_repository)
 ]
+ReportRepo = Annotated[ReportRepository, Depends(get_report_repository)]

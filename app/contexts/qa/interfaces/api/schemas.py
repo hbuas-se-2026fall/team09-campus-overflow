@@ -7,6 +7,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.contexts.qa.domain.question import QuestionStatus
+from app.contexts.qa.domain.report import (
+    ReportAction,
+    ReportStatus,
+    ReportTargetType,
+)
 from app.shared.errors import DomainValidationError
 from app.shared.text_validation import reject_unsafe_text
 
@@ -283,3 +288,67 @@ class CourseLeaderboardResponse(BaseModel):
     course_code: str
     course_name: str
     entries: list[CourseLeaderboardEntryResponse]
+
+
+class CreateReportRequest(BaseModel):
+    """POST /api/v1/reports 请求体（F18）。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    target_type: ReportTargetType
+    target_id: UUID
+    reason: str = Field(min_length=5, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reject_unsafe_reason(cls, value: str) -> str:
+        reject_unsafe_text(value, field_name="举报理由")
+        return value
+
+
+class ResolveReportRequest(BaseModel):
+    """POST /api/v1/admin/reports/{report_id}/resolve 请求体（F18）。"""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    action: ReportAction
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def _reject_unsafe_note(cls, value: str | None) -> str | None:
+        if value is not None:
+            reject_unsafe_text(value, field_name="处理备注")
+        return value
+
+
+class ReportResponse(BaseModel):
+    """举报工单响应白名单（F18）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    reporter_id: UUID
+    reporter_name: str
+    target_type: ReportTargetType
+    target_id: UUID
+    reason: str
+    status: ReportStatus
+    resolution_action: ReportAction | None = None
+    resolution_note: str | None = None
+    resolved_by: UUID | None = None
+    resolved_by_name: str | None = None
+    created_at: datetime
+    resolved_at: datetime | None = None
+
+
+class ReportListResponse(BaseModel):
+    """GET /api/v1/admin/reports 分页响应（F18）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReportResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

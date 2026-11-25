@@ -65,3 +65,19 @@ class CourseNotFoundError(QADomainError):
 
 class CourseEnrollmentRequiredError(QADomainError):
     """学生未选修目标课程，禁止在该课程下发问或关联（F17，路由层转 403）。"""
+
+
+class ReportNotFoundError(QADomainError):
+    """目标举报不存在（F18，路由层转 404）。"""
+
+
+class DuplicatePendingReportError(QADomainError):
+    """同一用户对同一目标存在未处理举报（F18，部分唯一索引兜底，路由层转 409）。"""
+
+
+class ReportAlreadyResolvedError(QADomainError):
+    """举报已被处置，不可重复处置（F18，条件更新兜底，路由层转 409）。"""
+
+
+class InvalidReportActionError(QADomainError):
+    """举报处理动作与目标类型不兼容（F18，路由层转 422）。"""

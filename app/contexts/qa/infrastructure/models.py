@@ -327,3 +327,52 @@ class QuestionBountyModel(Base):
             postgresql_where=text("status = 'open'"),
         ),
     )
+
+
+class ReportModel(Base):
+    """内容举报表（F18）：多态 target_type 仅限 question/answer，零跨上下文外键。"""
+
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pending"
+    )
+    resolution_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_reports_pending_reporter_target",
+            "reporter_id",
+            "target_type",
+            "target_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index("ix_reports_status_created", "status", "created_at"),
+        Index("ix_reports_target", "target_type", "target_id"),
+        CheckConstraint(
+            "target_type IN ('question', 'answer')",
+            name="ck_reports_target_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'resolved', 'dismissed')",
+            name="ck_reports_status",
+        ),
+    )

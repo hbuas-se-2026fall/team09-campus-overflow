@@ -74,6 +74,11 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/courses/{course_id}/students",
         "/api/v1/courses/{course_id}/leaderboard",
     ],
+    "reports": [
+        "/api/v1/reports",
+        "/api/v1/admin/reports",
+        "/api/v1/admin/reports/{report_id}/resolve",
+    ],
 }
 
 _METHODS = ("get", "post", "put", "patch", "delete")
@@ -121,8 +126,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 38, f"paths 数量漂移：期望 38，实际 {len(paths)}"
-        assert len(operations) == 45, f"operations 数量漂移：期望 45，实际 {len(operations)}"
+        assert len(paths) == 41, f"paths 数量漂移：期望 41，实际 {len(paths)}"
+        assert len(operations) == 48, f"operations 数量漂移：期望 48，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
@@ -272,3 +277,58 @@ class TestContractConventions:
             "answer_count",
             "rank",
         } <= set(lb_entry["properties"].keys())
+
+    def test_f18_report_and_admin_resolution_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert schemas["ReportTargetType"]["enum"] == ["question", "answer"]
+        assert schemas["ReportAction"]["enum"] == [
+            "dismiss",
+            "close_question",
+            "soft_delete",
+        ]
+        assert schemas["ReportStatus"]["enum"] == ["pending", "resolved", "dismissed"]
+
+        create_req = schemas["CreateReportRequest"]
+        assert create_req.get("additionalProperties") is False
+        assert {"target_type", "target_id", "reason"} <= set(
+            create_req["properties"].keys()
+        )
+        assert create_req["properties"]["target_type"]["$ref"] == (
+            "#/components/schemas/ReportTargetType"
+        )
+
+        resolve_req = schemas["ResolveReportRequest"]
+        assert resolve_req.get("additionalProperties") is False
+        assert {"action", "note"} <= set(resolve_req["properties"].keys())
+        assert resolve_req["properties"]["action"]["$ref"] == (
+            "#/components/schemas/ReportAction"
+        )
+
+        rep_resp = schemas["ReportResponse"]
+        assert rep_resp.get("additionalProperties") is False
+        assert {
+            "id",
+            "reporter_id",
+            "reporter_name",
+            "target_type",
+            "target_id",
+            "reason",
+            "status",
+            "resolution_action",
+            "resolution_note",
+            "resolved_by",
+            "resolved_by_name",
+            "created_at",
+            "resolved_at",
+        } <= set(rep_resp["properties"].keys())
+
+        admin_params = {
+            p["name"]: p
+            for p in schema["paths"]["/api/v1/admin/reports"]["get"]["parameters"]
+        }
+        status_schema = admin_params["status"]["schema"]
+        assert status_schema["default"] == "pending"
+        assert {"const": "all", "type": "string"} in status_schema["anyOf"]
+        assert {"$ref": "#/components/schemas/ReportStatus"} in status_schema["anyOf"]

@@ -21,6 +21,7 @@ QA_ERROR_STATUS: dict[type[Exception], int] = {
     qa_errors.AnswerNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.CommentNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.CourseNotFoundError: status.HTTP_404_NOT_FOUND,
+    qa_errors.ReportNotFoundError: status.HTTP_404_NOT_FOUND,
     qa_errors.NotQuestionAuthorError: status.HTTP_403_FORBIDDEN,
     qa_errors.NotAnswerAuthorError: status.HTTP_403_FORBIDDEN,
     qa_errors.CourseEnrollmentRequiredError: status.HTTP_403_FORBIDDEN,
@@ -31,6 +32,9 @@ QA_ERROR_STATUS: dict[type[Exception], int] = {
     qa_errors.InsufficientPointsError: status.HTTP_409_CONFLICT,
     qa_errors.BountyAlreadyActiveError: status.HTTP_409_CONFLICT,
     qa_errors.AcceptedAnswerCannotDeleteError: status.HTTP_409_CONFLICT,
+    qa_errors.DuplicatePendingReportError: status.HTTP_409_CONFLICT,
+    qa_errors.ReportAlreadyResolvedError: status.HTTP_409_CONFLICT,
+    qa_errors.InvalidReportActionError: status.HTTP_422_UNPROCESSABLE_CONTENT,
 }
 
 
