@@ -232,11 +232,11 @@ pnpm dev          # Vite 默认代理 /api -> http://localhost:8123（可用 VIT
 | 端 | 门禁项 | 命令 | 当前实测结果 |
 |:--|:--|:--|:--|
 | 后端 | Lint | `ruff check .` | **0 违规** |
-| 后端 | 严格类型检查 | `mypy app` | `--strict` **0 错误**（151 文件） |
-| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **407 passed**，总覆盖率 **83.23%**（≥ 70%） |
+| 后端 | 严格类型检查 | `mypy app` | `--strict` **0 错误**（171 文件） |
+| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **462 passed**，总覆盖率 **83.41%**（≥ 70%） |
 | 后端 | 核心聚合覆盖率 | `python -m coverage report --include="*/domain/*" --fail-under=90` | **94%**（≥ 90%） |
-| 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（34 paths / 40 ops） |
-| 后端 | 集成与并发回归 | `pytest -m integration -q`（+ F15 定向并发 2 轮 & 独立库 `campus_mig_test` 往返） | F15 定向集成与并发 2 轮 **10 passed × 2**（41.91s / 43.12s）；`v1.1.0` 全量真库集成 **228 passed**（421.33s，F01–F15 零回归） |
+| 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（37 paths / 44 ops） |
+| 后端 | 集成与并发回归 | `pytest -m integration -q`（+ F16 定向并发 2 轮 & 独立库 `campus_mig_test` 往返） | F16 定向集成与并发 2 轮 **3 passed × 2**（12.47s / 12.28s）；跨模块回归 **50 passed**（90.01s）；`v1.1.0` 全量真库集成 **228 passed**（421.33s） |
 | 前端 | 类型 / 测试 / 构建 / Lint | `pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint` | 由 `frontend` Job 门禁保障 |
 
 ---
@@ -252,10 +252,11 @@ CampusOverflow/
 │   ├── shared/                         # Engine / Redis / 文本校验 / 异常基类 / UNSET 哨兵
 │   └── contexts/                       # DDD 限界上下文（每上下文含 domain/application/infrastructure/interfaces）
 │       ├── identity/                   # 注册 / 登录 / JWT / RBAC 管理 / 校园资料 / 邮箱验证 / 公开名片（F09–F11/F15）
+│       ├── course/                     # 课程目录 / 学生自助选课 / 选课名录 / 只读准入端口（F16）
 │       ├── qa/                         # 问题（pg_trgm 检索）/ 回答（编辑/认证）/ 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
 │       ├── reputation/                 # 声誉流水 + 排行榜（Redis 缓存 + 展示名）+ Celery 记账（F05/F08/F11）
 │       └── discovery/                  # 站内通知中心（F04/F11/F14–F15）
-├── alembic/                            # 数据库版本化迁移脚本（当前 head：0c58c26e2c45）
+├── alembic/                            # 数据库版本化迁移脚本（当前 head：965519fef7b7）
 ├── frontend/                           # React 18 + TypeScript 5 + Vite 6 前端工程
 ├── tests/                              # 架构护栏 / 契约防漂移 / 单元 / 集成 / 验收测试
 ├── scripts/                            # OpenAPI 导出校验、管理员种子（seed_admin.py）与 Windows 一键启动器源码
@@ -276,7 +277,7 @@ CampusOverflow/
 | 阶段 2 | Walking Skeleton（注册 → 登录 → 提问 → 列表 → 详情 + 契约交付） | **完成** |
 | 阶段 3 | 核心特性（回答 / 投票 / 采纳 / 评论 / 标签 / 声誉 + Celery / 测试冲刺 / 迭代 5 治理） | **完成** |
 | 增量特性 A/B | `F01–F15`（筛选 / 搜索 / 相关推荐 / 通知 / 榜单 / 徽章 / 悬赏 / 热榜缓存 / 读性能与 `pg_trgm` / 资料与邮箱验证 / 展示名供给与个人主页 / 编辑回答 / 软删除与全链路过滤 / 评论二级回复 / RBAC 扩展与教师认证回答） | **已交付** |
-| 后续规划 | `F16–F18`（课程上下文 / 内容审核）与阶段 4 上线（`F19–F20`） | 规划中 |
+| 增量特性 C/D | `F16`（课程上下文与选课）已实现，待 `F17–F18`（问题关联课程 / 内容审核）与阶段 4 上线（`F19–F20`） | **进行中** |
 
 ---
 
@@ -290,11 +291,11 @@ CampusOverflow/
 | [docs/domain/](docs/domain) | 限界上下文图、聚合清单、统一语言术语表 |
 | [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md) | 前端消费指南、错误形态速查与接口语义口径 |
 | [docs/sprint/](docs/sprint) | 故事地图、Product Backlog、Gherkin 验收标准、PR 评审与 Retro |
-| [docs/test/](docs/test) | 各阶段与 F01–F15 开发测试台账（含并发竞态与暴力测试实证） |
+| [docs/test/](docs/test) | 各阶段与 F01–F16 开发测试台账（含并发竞态与暴力测试实证） |
 | [docs/plan/phase3-plan.md](docs/plan/phase3-plan.md) | 阶段 3 实施计划 v3 |
 
 ---
 
 ## 当前版本
 
-`v1.1.0-rc` —— 阶段 0–3 已收口，增量特性阶段 A/B（`F01–F15`）已全部实现并完成全量真库集成回归，待 `v1.1.0` 发布及阶段 4 容器化上线推进。
+`v1.2.0-dev` —— 阶段 0–3 及 `F01–F15`（`v1.1.0`）已收口；阶段 C 首项 `F16`（课程上下文与选课）已实现并通过门禁自测，持续推进 `F17–F18` 与阶段 4 上线。

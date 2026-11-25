@@ -24,8 +24,8 @@
 | 401 | 字符串（如"令牌无效或已过期"） | Bearer 依赖层 | 跳登录页 |
 | 400 | 字符串（如"请求数据无法被数据库接受…""验证码无效或已过期"） | 数据库兜底 / 邮箱验证码校验失败（错码/过期/超 5 次） | 提示检查输入或重发验证码 |
 | 413 | 字符串"request body too large" | 1 MiB body 上限中间件 | 提示内容过大 |
-| 404 | 字符串（如"问题不存在""回答不存在""评论不存在""用户不存在"） | 业务语义 | 展示空态 |
-| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"/"该问题已有采纳答案，不可删除"/"已采纳的回答不可删除"/"不可修改本人角色"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送、删除已采纳问题或回答、不可修改本人角色 | 展示提示；**勿自动重试** |
+| 404 | 字符串（如"问题不存在""回答不存在""评论不存在""用户不存在""课程不存在"） | 业务语义 | 展示空态 |
+| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"/"该问题已有采纳答案，不可删除"/"已采纳的回答不可删除"/"不可修改本人角色"/"课程编号已存在"/"已选修该课程，请勿重复选课"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送、删除已采纳问题或回答、不可修改本人角色、重复课程编号、重复选课 | 展示提示；**勿自动重试** |
 | 423 | 字符串"尝试次数过多，账号临时锁定，请稍后再试" | 登录失败超限（US-L04：5 次/15 分钟窗口，成功登录即清零） | 提示稍后再试；**勿自动重试** |
 | 429 | 字符串（如"发送过于频繁，请 60 秒后再试"） | 邮箱验证码发送冷却（F10：60s 冷却） | 展示倒计时，勿自动重试 |
 | 405 | 标准 Method Not Allowed | 方法面 | —（请求方式写错才会遇到） |
@@ -176,6 +176,20 @@
   - 状态守卫：回答已软删或所属问题已软删 → **404**；所属问题已关闭 → **409**；
   - `AnswerResponse`（`GET /questions/{id}`、`POST /questions/{id}/answers`、`PATCH /answers/{id}`、`POST /answers/{id}/verify` 共用）：增量暴露 `is_teacher_verified`（默认 `false`）、`verified_by_name`（默认 `null`）、`verified_at`（默认 `null`）；
   - 通知与声誉联动：仅在首次变为已认证且 `answer.author_id != actor_id` 时同事务向答主写入 `answer_verified` 通知（`target_type="answer"`, `target_id=answer.id`, `question_id=question.id`）；重复认证、自操作、取消认证均不发通知；**不触发声誉变动**。
+
+## 四点十八、课程上下文与选课（F16）
+
+- **`GET /api/v1/courses`（公开，无需登录）**：
+  - 分页 Query：`page >= 1`（默认 1）、`page_size` 1~100（默认 20）、可选 `semester`（空白串视为无筛选，非空须 2–32 字符且不含 `\t`/`\n`/`\r` 或控制字符，否则 **422**）。
+  - 排序固定 `(created_at DESC, id DESC)`；`total` 与列表同口径；`total_pages = ceil(total / page_size)`（空库为 0）；批量回填 `teacher_name`。
+- **`POST /api/v1/courses`（`require_roles("teacher", "admin")`，未登录 401，`student`/`ta` 403）**：
+  - 请求体 `CreateCourseRequest`（`extra="forbid"`、`str_strip_whitespace=True`）：`code`（2–32 位，单源 `strip().upper()`，须符合 `^[A-Z0-9][A-Z0-9_-]{1,31}$`，如 `cs-se-301` 归一为 `CS-SE-301`）、`name`（2–100 字单行文本）、`semester`（2–32 字单行文本）。
+  - 课程编号已存在（含大小写变体）→ **409**（`detail: "课程编号已存在"`）；成功返回 **201 + `CourseResponse`**。
+- **`POST /api/v1/courses/{course_id}/enroll`（`require_roles("student")`，未登录 401，`teacher`/`ta`/`admin` 403）**：
+  - 课程不存在 → **404**（`detail: "课程不存在"`）；重复选课 → **409**（`detail: "已选修该课程，请勿重复选课"`）；成功返回 **201 + `EnrollmentResponse`**。
+- **`GET /api/v1/courses/{course_id}/students`（`require_roles("teacher", "ta", "admin")`，未登录 401，`student` 403）**：
+  - 课程不存在 → **404**；按 `(enrolled_at ASC, id ASC)` 分页返回 `{items, total, page, page_size, total_pages}`。
+  - `CourseStudentItem` 最小披露仅返回 `{student_id, student_name, enrolled_at}`（绝不暴露 `email`、学工号或密码哈希），`student_name` 随 F11 实时回填。
 
 ## 五、开发期调试入口
 
