@@ -92,6 +92,9 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         return None
 
+    async def update_verification(self, answer: Answer) -> None:
+        return None
+
     async def get_by_id(
         self, answer_id: UUID, *, include_deleted: bool = False
     ) -> Answer | None:

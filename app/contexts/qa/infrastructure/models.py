@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
     text,
 )
@@ -98,6 +100,18 @@ class AnswerModel(Base):
     )
     # 软删除时间戳（F13）：NULL 表示活跃，非 NULL 表示已软删除
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 教师/助教/管理员认证回答状态（F15 D2/D3）
+    is_teacher_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_answers_verified_by", ondelete="SET NULL"),
+        nullable=True,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

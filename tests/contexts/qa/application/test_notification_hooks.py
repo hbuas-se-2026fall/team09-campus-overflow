@@ -75,6 +75,9 @@ class FakeAnswerRepository:
     async def update_body(self, answer: Answer) -> None:
         self.answer = answer
 
+    async def update_verification(self, answer: Answer) -> None:
+        self.answer = answer
+
     async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
         return False
 

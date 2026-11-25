@@ -49,6 +49,11 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/answers/{answer_id}",
         "/api/v1/answers/{answer_id}/comments",
         "/api/v1/answers/{answer_id}/accept",
+        "/api/v1/answers/{answer_id}/verify",
+    ],
+    "admin": [
+        "/api/v1/admin/users",
+        "/api/v1/admin/users/{user_id}/role",
     ],
     "tags": ["/api/v1/tags"],
     "users": ["/api/v1/users/{user_id}/profile"],
@@ -110,8 +115,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 31, f"paths 数量漂移：期望 31，实际 {len(paths)}"
-        assert len(operations) == 36, f"operations 数量漂移：期望 36，实际 {len(operations)}"
+        assert len(paths) == 34, f"paths 数量漂移：期望 34，实际 {len(paths)}"
+        assert len(operations) == 40, f"operations 数量漂移：期望 40，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
@@ -166,3 +171,27 @@ class TestContractConventions:
             any_of = prop.get("anyOf", [])
             assert {"type": "string", "format": "uuid"} in any_of
             assert {"type": "null"} in any_of
+
+    def test_f15_rbac_and_answer_verification_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert schemas["RegisterRequest"]["properties"]["role"]["enum"] == [
+            "student",
+            "teacher",
+        ]
+        role_req = schemas["UpdateUserRoleRequest"]
+        assert role_req.get("additionalProperties") is False
+        assert role_req["properties"]["role"]["enum"] == [
+            "student",
+            "teacher",
+            "ta",
+            "admin",
+        ]
+        admin_item_props = schemas["AdminUserItem"]["properties"]
+        assert "password" not in admin_item_props
+        assert "password_hash" not in admin_item_props
+        ans_props = schemas["AnswerResponse"]["properties"]
+        assert {"is_teacher_verified", "verified_by_name", "verified_at"} <= set(
+            ans_props.keys()
+        )

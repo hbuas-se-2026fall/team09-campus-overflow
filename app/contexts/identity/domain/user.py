@@ -6,7 +6,11 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from app.contexts.identity.domain.errors import IdentityRequiredError, WeakPasswordError
+from app.contexts.identity.domain.errors import (
+    IdentityRequiredError,
+    UnknownRoleError,
+    WeakPasswordError,
+)
 from app.contexts.identity.domain.value_objects import (
     ClassName,
     College,
@@ -18,7 +22,8 @@ from app.contexts.identity.domain.value_objects import (
 )
 from app.shared.sentinel import UNSET, UnsetType
 
-Role = Literal["student", "teacher"]
+Role = Literal["student", "teacher", "ta", "admin"]
+_VALID_ROLES: tuple[Role, ...] = ("student", "teacher", "ta", "admin")
 
 _PASSWORD_MIN_LENGTH = 8
 _HAS_LETTER = re.compile(r"[A-Za-z]")
@@ -41,7 +46,9 @@ def normalize_public_nickname(nickname: str | None) -> str | None:
 
 
 _ROLE_DISPLAY_PREFIXES: dict[str, str] = {
+    "admin": "管理员",
     "teacher": "教师",
+    "ta": "助教",
     "student": "学生",
 }
 
@@ -103,6 +110,12 @@ class User:
     def mark_email_verified(self) -> None:
         self.email_verified = True
 
+    def change_role(self, new_role: Role) -> None:
+        """变更用户角色（F15）：保留既有学号/工号，不破坏原登录句柄。"""
+        if new_role not in _VALID_ROLES:
+            raise UnknownRoleError(f"未知角色：{new_role}")
+        self.role = new_role
+
     @property
     def display_name(self) -> str:
         """当前用户的公开展示名（复用单源规则，不泄露学工号/邮箱）。"""
@@ -132,6 +145,8 @@ class User:
             if identity_value is None:
                 raise IdentityRequiredError("教师注册必须提供工号")
             staff_id = StaffId(identity_value)
+        else:
+            raise UnknownRoleError(f"自助注册不支持角色：{role}")
 
         now = datetime.now(UTC)
         user = cls(

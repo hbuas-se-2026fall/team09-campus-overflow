@@ -58,6 +58,9 @@ class Answer:
     votes_count: int = 0
     events: list[AnswerPosted] = field(default_factory=list, repr=False, compare=False)
     deleted_at: datetime | None = None
+    is_teacher_verified: bool = False
+    verified_by: UUID | None = None
+    verified_at: datetime | None = None
 
     @property
     def is_deleted(self) -> bool:
@@ -104,5 +107,23 @@ class Answer:
         self.is_accepted = True
 
     def edit_body(self, *, body_value: str) -> None:
-        """编辑回答正文（US-A02 / F12）：值对象先校验后赋值，保留既有采纳/票数状态。"""
+        """编辑回答正文（US-A02 / F12）：值对象先校验后赋值，保留既有采纳/票数/认证状态。"""
         self.body = Body(body_value)
+
+    def verify(self, actor_id: UUID, *, at: datetime | None = None) -> bool:
+        """教师/助教/管理员认证回答（F15 D3）：已认证则保持原认证人与时间不变，幂等返回 False。"""
+        if self.is_teacher_verified:
+            return False
+        self.is_teacher_verified = True
+        self.verified_by = actor_id
+        self.verified_at = at if at is not None else datetime.now(UTC)
+        return True
+
+    def unverify(self) -> bool:
+        """取消回答认证（F15 D3）：未认证时保持幂等返回 False。"""
+        if not self.is_teacher_verified:
+            return False
+        self.is_teacher_verified = False
+        self.verified_by = None
+        self.verified_at = None
+        return True

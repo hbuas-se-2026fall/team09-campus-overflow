@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from app.contexts.identity.domain.user import User
+from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.domain.value_objects import ClassName, College, Nickname
 from app.shared.sentinel import UNSET, UnsetType
 
@@ -44,4 +44,18 @@ class UserRepository(Protocol):
 
     async def mark_email_verified(self, user_id: UUID) -> None:
         """F10：定向将 email_verified 置为 True（不覆盖资料列）。"""
+        ...
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        """F15：按 created_at DESC, id DESC 分页列出用户，total 与列表同口径。"""
+        ...
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        """F15：锁定 UserModel 后原子替换 user_roles 唯一角色行并返回刷新后的 User。"""
         ...

@@ -23,9 +23,14 @@ from app.contexts.identity.infrastructure.models import (
 
 logger = logging.getLogger(__name__)
 
-# 多角色脏数据固定优先级裁定（不依赖字母序，后续扩展 ta/admin 时行为可预期）：
-# teacher 优先于 student，其余未知角色按 (99, 角色名) 排后。
-_ROLE_PRIORITY: dict[str, int] = {"teacher": 0, "student": 1}
+# 多角色脏数据固定优先级裁定（F15 扩展：admin > teacher > ta > student，
+# 其余未知角色按 (99, 角色名) 排后）。
+_ROLE_PRIORITY: dict[str, int] = {
+    "admin": 0,
+    "teacher": 1,
+    "ta": 2,
+    "student": 3,
+}
 
 
 def _resolve_user_role(user_id: UUID, raw_roles: list[str | None]) -> str:

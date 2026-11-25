@@ -175,6 +175,10 @@ class AnswerRepository(Protocol):
         """F12：仅更新回答正文（与采纳条件更新分离，不触碰 is_accepted）。"""
         ...
 
+    async def update_verification(self, answer: Answer) -> None:
+        """F15：仅更新回答认证状态（与正文/采纳更新职责隔离，ISP）。"""
+        ...
+
     async def get_by_id(
         self, answer_id: UUID, *, include_deleted: bool = False
     ) -> Answer | None:

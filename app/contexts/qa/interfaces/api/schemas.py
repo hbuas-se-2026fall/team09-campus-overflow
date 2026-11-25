@@ -127,7 +127,7 @@ class QuestionListResponse(BaseModel):
 
 
 class AnswerResponse(BaseModel):
-    """回答白名单（US-A01/A05）：votes 为净票数（v3 裁定 #1，可为负）。"""
+    """回答白名单（US-A01/A05 / F15）：votes 为净票数（v3 裁定 #1，可为负）。"""
 
     id: UUID
     body: str
@@ -136,6 +136,9 @@ class AnswerResponse(BaseModel):
     created_at: datetime
     votes: int
     is_accepted: bool
+    is_teacher_verified: bool = False
+    verified_by_name: str | None = None
+    verified_at: datetime | None = None
     comments: list[CommentResponse] = Field(default_factory=list)
 
 

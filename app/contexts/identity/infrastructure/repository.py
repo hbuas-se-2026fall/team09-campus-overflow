@@ -4,11 +4,17 @@ from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import update as sql_update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.contexts.identity.domain.errors import IdentityAlreadyExistsError
+from app.contexts.identity.domain.errors import (
+    IdentityAlreadyExistsError,
+    UnknownRoleError,
+    UserNotFoundError,
+)
 from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.domain.value_objects import (
     ClassName,
@@ -172,6 +178,87 @@ class SqlAlchemyUserRepository:
             .execution_options(synchronize_session=False)
         )
         await self._session.execute(stmt)
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        """F15：按 created_at DESC, id DESC 分页列出用户，total 与列表同口径。"""
+        base_ids = select(UserModel.id).select_from(UserModel)
+        if role is not None:
+            base_ids = (
+                base_ids.join(UserRoleModel, UserRoleModel.user_id == UserModel.id)
+                .join(RoleModel, RoleModel.id == UserRoleModel.role_id)
+                .where(RoleModel.name == role)
+            )
+        total = int(
+            (
+                await self._session.execute(
+                    select(func.count()).select_from(base_ids.subquery())
+                )
+            ).scalar_one()
+        )
+        offset = (page - 1) * page_size
+        if total == 0 or offset >= total:
+            return [], total
+
+        stmt = self._user_select()
+        if role is not None:
+            stmt = stmt.where(RoleModel.name == role)
+        stmt = (
+            stmt.order_by(UserModel.created_at.desc(), UserModel.id.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [_row_to_domain(row) for row in rows], total
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        """F15：锁定 UserModel 后原子替换 user_roles 唯一角色行并返回刷新后的 User。"""
+        locked_id = (
+            await self._session.execute(
+                select(UserModel.id)
+                .where(UserModel.id == user_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if locked_id is None:
+            raise UserNotFoundError("用户不存在")
+
+        role_id = (
+            await self._session.execute(
+                select(RoleModel.id).where(RoleModel.name == new_role)
+            )
+        ).scalar_one_or_none()
+        if role_id is None:
+            raise UnknownRoleError(f"未知角色：{new_role}")
+
+        await self._session.execute(
+            sql_delete(UserRoleModel).where(UserRoleModel.user_id == user_id)
+        )
+        await self._session.execute(
+            pg_insert(UserRoleModel)
+            .values(user_id=user_id, role_id=role_id)
+            .on_conflict_do_nothing()
+        )
+        await self._session.execute(
+            sql_update(UserModel)
+            .where(UserModel.id == user_id)
+            .values(updated_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+        refresh_stmt = (
+            self._user_select()
+            .where(UserModel.id == user_id)
+            .execution_options(populate_existing=True)
+        )
+        row = (await self._session.execute(refresh_stmt)).one_or_none()
+        if row is None:
+            raise UserNotFoundError("用户不存在")
+        return _row_to_domain(row)
 
 
 def _row_to_domain(row: Any) -> User:

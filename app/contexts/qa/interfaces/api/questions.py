@@ -38,6 +38,7 @@ from app.contexts.qa.domain.question import Question, QuestionStatus
 from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
 from app.contexts.qa.domain.vote import VoteTarget
 from app.contexts.qa.interfaces.api._common import (
+    answer_response,
     comment_response,
     create_comment_on_target,
     display_name_for,
@@ -186,9 +187,12 @@ async def get_question(
     if view is None:
         # S-10：只回业务语义，不泄露内部信息
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
-    # 合并题主 + 回答 + 题评 + 答评的全部 author_id，单次 IN 查询杜绝 N+1
+    # 合并题主 + 回答 + 认证人 + 题评 + 答评的全部用户 ID，单次 IN 查询杜绝 N+1
     author_ids: list[UUID] = [view.question.author_id]
-    author_ids.extend(a.author_id for a in view.answers)
+    for a in view.answers:
+        author_ids.append(a.author_id)
+        if a.verified_by is not None:
+            author_ids.append(a.verified_by)
     author_ids.extend(c.author_id for c in view.question_comments)
     for comments_list in view.answer_comments.values():
         author_ids.extend(c.author_id for c in comments_list)
@@ -204,14 +208,14 @@ async def get_question(
         tags=[t.value for t in view.question.tags],
         status=view.question.status,
         answers=[
-            AnswerResponse(
-                id=a.id,
-                body=a.body.value,
-                author_id=a.author_id,
+            answer_response(
+                a,
                 author_name=display_name_for(summaries, a.author_id),
-                created_at=a.created_at,
-                votes=a.votes_count,
-                is_accepted=a.is_accepted,
+                verified_by_name=(
+                    display_name_for(summaries, a.verified_by)
+                    if a.verified_by is not None
+                    else None
+                ),
                 comments=[
                     comment_response(c, author_name=display_name_for(summaries, c.author_id))
                     for c in view.answer_comments.get(str(a.id), [])
@@ -352,15 +356,7 @@ async def post_answer(
         )
     )
 
-    return AnswerResponse(
-        id=answer.id,
-        body=answer.body.value,
-        author_id=answer.author_id,
-        author_name=user.display_name,
-        created_at=answer.created_at,
-        votes=0,  # 新回答无票
-        is_accepted=answer.is_accepted,
-    )
+    return answer_response(answer, author_name=user.display_name)
 
 
 @router.post(

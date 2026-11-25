@@ -46,5 +46,13 @@ class InvalidVerificationCodeError(IdentityDomainError):
     """验证码无效、已过期或尝试次数超限（F10，路由层转 400）。"""
 
 
+class UserNotFoundError(IdentityDomainError):
+    """目标用户不存在（F15，路由层转 404）。"""
+
+
+class SelfRoleChangeError(IdentityDomainError):
+    """不可修改本人角色（F15，路由层转 409）。"""
+
+
 class EmailVerificationUnavailableError(Exception):
     """邮箱验证服务/存储不可用（F10）：故意不继承 IdentityDomainError，防落入基类 422。"""
