@@ -72,6 +72,7 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/courses",
         "/api/v1/courses/{course_id}/enroll",
         "/api/v1/courses/{course_id}/students",
+        "/api/v1/courses/{course_id}/leaderboard",
     ],
 }
 
@@ -120,8 +121,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 37, f"paths 数量漂移：期望 37，实际 {len(paths)}"
-        assert len(operations) == 44, f"operations 数量漂移：期望 44，实际 {len(operations)}"
+        assert len(paths) == 38, f"paths 数量漂移：期望 38，实际 {len(paths)}"
+        assert len(operations) == 45, f"operations 数量漂移：期望 45，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
@@ -244,3 +245,30 @@ class TestContractConventions:
                 "page_size",
                 "total_pages",
             } <= set(schemas[list_name]["properties"].keys())
+
+    def test_f17_question_course_and_leaderboard_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert "course_id" in schemas["AskQuestionRequest"]["properties"]
+        assert "course_id" in schemas["EditQuestionRequest"]["properties"]
+        for name in ("QuestionResponse", "QuestionListItem", "QuestionDetailResponse"):
+            props = schemas[name]["properties"]
+            assert {"course_id", "course_name"} <= set(props.keys())
+
+        lb_resp = schemas["CourseLeaderboardResponse"]
+        assert lb_resp.get("additionalProperties") is False
+        assert {"course_id", "course_code", "course_name", "entries"} <= set(
+            lb_resp["properties"].keys()
+        )
+
+        lb_entry = schemas["CourseLeaderboardEntryResponse"]
+        assert lb_entry.get("additionalProperties") is False
+        assert {
+            "user_id",
+            "display_name",
+            "accepted_count",
+            "net_votes",
+            "answer_count",
+            "rank",
+        } <= set(lb_entry["properties"].keys())

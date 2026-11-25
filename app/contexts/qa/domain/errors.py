@@ -57,3 +57,11 @@ class BountyAlreadyActiveError(QADomainError):
 
 class AcceptedAnswerCannotDeleteError(QADomainError):
     """已采纳内容不可删除（F13，D2：问题已有采纳答案或回答已被采纳均不可删除，路由层转 409）。"""
+
+
+class CourseNotFoundError(QADomainError):
+    """关联或查询的课程不存在（F17，路由层转 404）。"""
+
+
+class CourseEnrollmentRequiredError(QADomainError):
+    """学生未选修目标课程，禁止在该课程下发问或关联（F17，路由层转 403）。"""

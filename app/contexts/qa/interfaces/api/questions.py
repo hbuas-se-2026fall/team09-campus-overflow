@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from app.contexts.qa.application.list_questions_use_case import ListQuestionsUse
 from app.contexts.qa.application.list_related_questions_use_case import (
     ListRelatedQuestionsUseCase,
 )
+from app.contexts.qa.application.ports import CourseAccessReader
 from app.contexts.qa.application.queries import (
     GetQuestionQuery,
     ListQuestionsQuery,
@@ -48,6 +50,7 @@ from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
     BountyServiceDep,
     CommentRepo,
+    CourseAccessReaderDep,
     NotificationWriterDep,
     QuestionRepo,
     TagCatalogRepo,
@@ -67,6 +70,7 @@ from app.contexts.qa.interfaces.api.schemas import (
     VoteRequest,
 )
 from app.contexts.reputation.interfaces.publisher import EventPublisherDep
+from app.shared.sentinel import UNSET, UnsetType
 
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 
@@ -82,17 +86,23 @@ async def ask_question(
     user: CurrentUser,
     questions: QuestionRepo,
     tags: TagCatalogRepo,
+    course_reader: CourseAccessReaderDep,
 ) -> QuestionResponse:
-    use_case = AskQuestionUseCase(questions, tags)
+    use_case = AskQuestionUseCase(questions, tags, course_reader)
     question = await use_case.execute(
         AskQuestionCommand(
             title=payload.title,
             body=payload.body,
             author_id=user.id,  # 作者只取令牌中的当前用户，绝不取自请求体
             tags=tuple(payload.tags),
+            course_id=payload.course_id,
+            actor_role=user.role,
         )
     )
-    return _question_response(question, author_name=user.display_name)
+    course_name = await _course_name_for(course_reader, question.course_id)
+    return _question_response(
+        question, author_name=user.display_name, course_name=course_name
+    )
 
 
 @router.get(
@@ -103,6 +113,7 @@ async def ask_question(
 async def list_questions(
     questions: QuestionRepo,
     summary_reader: UserSummaryReaderDep,
+    course_reader: CourseAccessReaderDep,
     page: int = Query(default=1, ge=1, description="页码，从 1 起"),
     page_size: int = Query(default=20, ge=1, le=100, description="每页条数，上限 100（S-05）"),
     sort: QuestionSort = Query(
@@ -134,6 +145,9 @@ async def list_questions(
     created_to: datetime | None = Query(
         default=None, description="创建时间上界（闭区间，须带时区；F01）"
     ),
+    course_id: UUID | None = Query(
+        default=None, description="按课程 ID 筛选（F17）"
+    ),
 ) -> QuestionListResponse:
     # sort/status 为枚举：非法值（含注入串）在参数校验即 422，不进 SQL（S-07）
     # 逆序/无时区/tag 非法字符/q 超长或控制字符由 QuestionFilter.__post_init__
@@ -144,12 +158,16 @@ async def list_questions(
         created_from=created_from,
         created_to=created_to,
         q=q,
+        course_id=course_id,
     )
     use_case = ListQuestionsUseCase(questions)
     result = await use_case.execute(
         ListQuestionsQuery(page=page, page_size=page_size, sort=sort, filters=filters)
     )
     summaries = await summary_reader.get_summaries(q.author_id for q in result.items)
+    course_names = await _course_names_for(
+        course_reader, (item.course_id for item in result.items)
+    )
     return QuestionListResponse(
         items=[
             QuestionListItem(
@@ -160,6 +178,10 @@ async def list_questions(
                 created_at=q.created_at,
                 tags=[t.value for t in q.tags],
                 status=q.status,
+                course_id=q.course_id,
+                course_name=(
+                    course_names.get(q.course_id) if q.course_id is not None else None
+                ),
             )
             for q in result.items
         ],
@@ -181,6 +203,7 @@ async def get_question(
     answers: AnswerRepo,
     comments: CommentRepo,
     summary_reader: UserSummaryReaderDep,
+    course_reader: CourseAccessReaderDep,
 ) -> QuestionDetailResponse:
     use_case = GetQuestionUseCase(questions, answers, comments)
     view = await use_case.execute(GetQuestionQuery(question_id=question_id))
@@ -197,6 +220,7 @@ async def get_question(
     for comments_list in view.answer_comments.values():
         author_ids.extend(c.author_id for c in comments_list)
     summaries = await summary_reader.get_summaries(author_ids)
+    course_name = await _course_name_for(course_reader, view.question.course_id)
     return QuestionDetailResponse(
         id=view.question.id,
         title=view.question.title.value,
@@ -207,6 +231,8 @@ async def get_question(
         accepted_answer_id=view.question.accepted_answer_id,
         tags=[t.value for t in view.question.tags],
         status=view.question.status,
+        course_id=view.question.course_id,
+        course_name=course_name,
         answers=[
             answer_response(
                 a,
@@ -239,6 +265,7 @@ async def list_related_questions(
     question_id: UUID,
     questions: QuestionRepo,
     summary_reader: UserSummaryReaderDep,
+    course_reader: CourseAccessReaderDep,
     limit: int = Query(default=5, ge=1, le=10, description="返回条数，1~10"),
 ) -> list[QuestionListItem]:
     use_case = ListRelatedQuestionsUseCase(questions)
@@ -249,6 +276,9 @@ async def list_related_questions(
         # 与详情同语义：不泄露内部信息
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="问题不存在")
     summaries = await summary_reader.get_summaries(q.author_id for q in items)
+    course_names = await _course_names_for(
+        course_reader, (item.course_id for item in items)
+    )
     return [
         QuestionListItem(
             id=q.id,
@@ -258,6 +288,10 @@ async def list_related_questions(
             created_at=q.created_at,
             tags=[t.value for t in q.tags],
             status=q.status,
+            course_id=q.course_id,
+            course_name=(
+                course_names.get(q.course_id) if q.course_id is not None else None
+            ),
         )
         for q in items
     ]
@@ -266,27 +300,60 @@ async def list_related_questions(
 @router.patch(
     "/{question_id}",
     response_model=QuestionResponse,
-    summary="编辑问题（仅提问者，US-Q08；仅标题+正文；已关闭 409）",
+    summary="编辑问题（仅提问者，US-Q08；仅标题+正文及可选课程关联；已关闭 409）",
 )
 async def edit_question(
     question_id: UUID,
     payload: EditQuestionRequest,
     user: CurrentUser,
     questions: QuestionRepo,
+    course_reader: CourseAccessReaderDep,
 ) -> QuestionResponse:
-    use_case = EditQuestionUseCase(questions)
+    use_case = EditQuestionUseCase(questions, course_reader)
+    course_arg: UUID | None | UnsetType = (
+        payload.course_id if "course_id" in payload.model_fields_set else UNSET
+    )
     question = await use_case.execute(
         EditQuestionCommand(
             question_id=question_id,
             actor_id=user.id,
             title=payload.title,
             body=payload.body,
+            course_id=course_arg,
+            actor_role=user.role,
         )
     )
-    return _question_response(question, author_name=user.display_name)
+    course_name = await _course_name_for(course_reader, question.course_id)
+    return _question_response(
+        question, author_name=user.display_name, course_name=course_name
+    )
 
 
-def _question_response(question: Question, *, author_name: str) -> QuestionResponse:
+async def _course_name_for(
+    course_reader: CourseAccessReader, course_id: UUID | None
+) -> str | None:
+    if course_id is None:
+        return None
+    summary = await course_reader.get_summary(course_id)
+    return summary.name if summary is not None else None
+
+
+async def _course_names_for(
+    course_reader: CourseAccessReader, course_ids: Iterable[UUID | None]
+) -> dict[UUID, str]:
+    valid_ids = [cid for cid in course_ids if cid is not None]
+    if not valid_ids:
+        return {}
+    summaries = await course_reader.get_summaries(valid_ids)
+    return {cid: summary.name for cid, summary in summaries.items()}
+
+
+def _question_response(
+    question: Question,
+    *,
+    author_name: str,
+    course_name: str | None = None,
+) -> QuestionResponse:
     """问题白名单响应唯一装配处（创建/编辑复用，tags 统一码点序）。"""
     return QuestionResponse(
         id=question.id,
@@ -297,6 +364,8 @@ def _question_response(question: Question, *, author_name: str) -> QuestionRespo
         created_at=question.created_at,
         tags=sorted(t.value for t in question.tags),
         status=question.status,
+        course_id=question.course_id,
+        course_name=course_name,
     )
 
 

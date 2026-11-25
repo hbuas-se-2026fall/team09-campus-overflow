@@ -5,6 +5,7 @@ from uuid import UUID
 
 from app.contexts.qa.domain.comment import CommentTarget
 from app.contexts.qa.domain.vote import VoteDirection, VoteTarget
+from app.shared.sentinel import UNSET, UnsetType
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,8 @@ class AskQuestionCommand:
     body: str
     author_id: UUID
     tags: tuple[str, ...] = ()
+    course_id: UUID | None = None
+    actor_role: str = "student"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,8 @@ class EditQuestionCommand:
     actor_id: UUID
     title: str | None
     body: str | None
+    course_id: UUID | None | UnsetType = UNSET
+    actor_role: str = "student"
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,6 +19,7 @@ from app.contexts.qa.domain.question import (
     QuestionStatus,
 )
 from app.contexts.qa.domain.value_objects import Body, Title
+from app.shared.sentinel import UNSET
 
 
 class TestTitle:
@@ -223,3 +224,45 @@ class TestQuestionSoftDelete:
 
         assert question.is_deleted is False
         assert question.deleted_at is None
+
+
+class TestQuestionCourseAssociation:
+    """F17：Question.ask / edit_title_body 可选 course_id 与 UNSET/None 语义。"""
+
+    def test_ask_and_edit_course_id_semantics(self) -> None:
+        cid1, cid2 = uuid4(), uuid4()
+        q = Question.ask(
+            title_value="事务隔离级别与幻读防止",
+            body_value="PostgreSQL SSI 如何检测 rw-antidependency 环？",
+            author_id=uuid4(),
+            course_id=cid1,
+        )
+        assert q.course_id == cid1
+
+        # 传 UNSET 保留既有 course_id
+        q.edit_title_body(
+            title_value="事务隔离级别与幻读防止（修订）",
+            body_value="PostgreSQL SSI 如何检测 rw-antidependency 环？",
+            course_id=UNSET,
+        )
+        assert q.course_id == cid1
+
+        # 校验失败不半改 course_id
+        with pytest.raises(ValueError):
+            q.edit_title_body(title_value="   ", body_value="有效正文", course_id=cid2)
+        assert q.course_id == cid1
+
+        # 传新 course_id 变更，传 None 解绑
+        q.edit_title_body(
+            title_value="事务隔离级别与幻读防止（改课）",
+            body_value="PostgreSQL SSI 如何检测 rw-antidependency 环？",
+            course_id=cid2,
+        )
+        assert q.course_id == cid2
+
+        q.edit_title_body(
+            title_value="事务隔离级别与幻读防止（解绑）",
+            body_value="PostgreSQL SSI 如何检测 rw-antidependency 环？",
+            course_id=None,
+        )
+        assert q.course_id is None

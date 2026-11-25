@@ -164,3 +164,15 @@ def test_q_coexists_with_other_filters() -> None:
     assert filters.created_from == moment
 
 
+def test_course_id_filter_preserved() -> None:
+    """F17：QuestionFilter 保留可选 course_id 筛选字段。"""
+    from uuid import uuid4
+
+    cid = uuid4()
+    filters = QuestionFilter(course_id=cid, status=QuestionStatus.OPEN, q="MVCC")
+    assert filters.course_id == cid
+    assert filters.status is QuestionStatus.OPEN
+    assert filters.q == "MVCC"
+    assert QuestionFilter().course_id is None
+
+

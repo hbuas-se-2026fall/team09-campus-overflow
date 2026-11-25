@@ -912,6 +912,25 @@
               "title": "Created To"
             },
             "description": "创建时间上界（闭区间，须带时区；F01）"
+          },
+          {
+            "name": "course_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按课程 ID 筛选（F17）",
+              "title": "Course Id"
+            },
+            "description": "按课程 ID 筛选（F17）"
           }
         ],
         "responses": {
@@ -984,7 +1003,7 @@
         "tags": [
           "questions"
         ],
-        "summary": "编辑问题（仅提问者，US-Q08；仅标题+正文；已关闭 409）",
+        "summary": "编辑问题（仅提问者，US-Q08；仅标题+正文及可选课程关联；已关闭 409）",
         "operationId": "edit_question_api_v1_questions__question_id__patch",
         "security": [
           {
@@ -1860,6 +1879,63 @@
         }
       }
     },
+    "/api/v1/courses/{course_id}/leaderboard": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "课程贡献排行榜（公开，基于课程下被采纳回答数与净赞数聚合，课程不存在 404）",
+        "operationId": "get_course_leaderboard_api_v1_courses__course_id__leaderboard_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "返回条数，1~50",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "返回条数，1~50"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseLeaderboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/points": {
       "get": {
         "tags": [
@@ -2435,6 +2511,18 @@
             "type": "array",
             "maxItems": 20,
             "title": "Tags"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           }
         },
         "additionalProperties": false,
@@ -2644,6 +2732,81 @@
         ],
         "title": "ConfirmEmailVerificationRequest",
         "description": "POST /api/v1/auth/me/verify-email/confirm 请求体（F10）。"
+      },
+      "CourseLeaderboardEntryResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "net_votes": {
+            "type": "integer",
+            "title": "Net Votes"
+          },
+          "answer_count": {
+            "type": "integer",
+            "title": "Answer Count"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "display_name",
+          "accepted_count",
+          "net_votes",
+          "answer_count",
+          "rank"
+        ],
+        "title": "CourseLeaderboardEntryResponse",
+        "description": "课程贡献排行榜条目（F17）。"
+      },
+      "CourseLeaderboardResponse": {
+        "properties": {
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "course_code": {
+            "type": "string",
+            "title": "Course Code"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CourseLeaderboardEntryResponse"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "course_id",
+          "course_code",
+          "course_name",
+          "entries"
+        ],
+        "title": "CourseLeaderboardResponse",
+        "description": "GET /api/v1/courses/{course_id}/leaderboard 响应（F17）。"
       },
       "CourseListResponse": {
         "properties": {
@@ -2867,12 +3030,24 @@
               }
             ],
             "title": "Body"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "EditQuestionRequest",
-        "description": "PATCH /api/v1/questions/{id} 请求体（US-Q08；裁定 D6：仅标题+正文，标签不可编辑）。\n\nPATCH 部分更新：title/body 均可选、至少给一个（模型级校验，缺失即 422 数组形）；\n给哪个改哪个，缺省侧沿用既有值（用例合并）。字符串形 422 由领域值对象兜底。"
+        "description": "PATCH /api/v1/questions/{id} 请求体（US-Q08；D6 仅标题+正文；F17 可选 course_id）。\n\nPATCH 部分更新：title/body/course_id 均可选、至少给一个（模型级校验，缺失即 422 数组形）；\n显式传 course_id: null 可解绑课程。"
       },
       "EnrollmentResponse": {
         "properties": {
@@ -3313,6 +3488,29 @@
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
           },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
+          },
           "answers": {
             "items": {
               "$ref": "#/components/schemas/AnswerResponse"
@@ -3376,6 +3574,29 @@
           },
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
           }
         },
         "type": "object",
@@ -3388,7 +3609,7 @@
           "status"
         ],
         "title": "QuestionListItem",
-        "description": "列表条目白名单：不含正文（正文最长 5000 字，列表页不需要）与任何内部字段（S-12）。\n\ntags 为迭代 4 新增字段（增量、向后兼容）。"
+        "description": "列表条目白名单：不含正文（正文最长 5000 字，列表页不需要）与任何内部字段（S-12）。\n\ntags 为迭代 4 新增字段（增量、向后兼容）；course_* 为 F17 新增字段。"
       },
       "QuestionListResponse": {
         "properties": {
@@ -3465,6 +3686,29 @@
           },
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
           }
         },
         "type": "object",
@@ -3478,7 +3722,7 @@
           "status"
         ],
         "title": "QuestionResponse",
-        "description": "问题响应白名单：不含任何内部字段。tags/status 为公开生命周期字段。"
+        "description": "问题响应白名单：不含任何内部字段。tags/status/course_* 为公开字段。"
       },
       "QuestionSort": {
         "type": "string",

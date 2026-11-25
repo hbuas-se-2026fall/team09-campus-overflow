@@ -25,6 +25,7 @@ class AskQuestionRequest(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     body: str = Field(min_length=1, max_length=5000)
     tags: list[str] = Field(default_factory=list, max_length=20)
+    course_id: UUID | None = None
 
 
 class PostAnswerRequest(BaseModel):
@@ -83,7 +84,7 @@ class CommentResponse(BaseModel):
 
 
 class QuestionResponse(BaseModel):
-    """问题响应白名单：不含任何内部字段。tags/status 为公开生命周期字段。"""
+    """问题响应白名单：不含任何内部字段。tags/status/course_* 为公开字段。"""
 
     id: UUID
     title: str
@@ -93,12 +94,14 @@ class QuestionResponse(BaseModel):
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
+    course_id: UUID | None = None
+    course_name: str | None = None
 
 
 class QuestionListItem(BaseModel):
     """列表条目白名单：不含正文（正文最长 5000 字，列表页不需要）与任何内部字段（S-12）。
 
-    tags 为迭代 4 新增字段（增量、向后兼容）。
+    tags 为迭代 4 新增字段（增量、向后兼容）；course_* 为 F17 新增字段。
     """
 
     id: UUID
@@ -108,6 +111,8 @@ class QuestionListItem(BaseModel):
     created_at: datetime
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
+    course_id: UUID | None = None
+    course_name: str | None = None
 
 
 class TagListResponse(BaseModel):
@@ -159,26 +164,33 @@ class QuestionDetailResponse(BaseModel):
     accepted_answer_id: UUID | None
     tags: list[str] = Field(default_factory=list)
     status: QuestionStatus
+    course_id: UUID | None = None
+    course_name: str | None = None
     answers: list[AnswerResponse] = Field(default_factory=list)
     comments: list[CommentResponse] = Field(default_factory=list)
 
 
 class EditQuestionRequest(BaseModel):
-    """PATCH /api/v1/questions/{id} 请求体（US-Q08；裁定 D6：仅标题+正文，标签不可编辑）。
+    """PATCH /api/v1/questions/{id} 请求体（US-Q08；D6 仅标题+正文；F17 可选 course_id）。
 
-    PATCH 部分更新：title/body 均可选、至少给一个（模型级校验，缺失即 422 数组形）；
-    给哪个改哪个，缺省侧沿用既有值（用例合并）。字符串形 422 由领域值对象兜底。
+    PATCH 部分更新：title/body/course_id 均可选、至少给一个（模型级校验，缺失即 422 数组形）；
+    显式传 course_id: null 可解绑课程。
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     title: str | None = Field(default=None, min_length=1, max_length=100)
     body: str | None = Field(default=None, min_length=1, max_length=5000)
+    course_id: UUID | None = None
 
     @model_validator(mode="after")
     def _require_at_least_one_field(self) -> EditQuestionRequest:
-        if self.title is None and self.body is None:
-            raise DomainValidationError("至少提供 title 或 body 之一")
+        if (
+            self.title is None
+            and self.body is None
+            and "course_id" not in self.model_fields_set
+        ):
+            raise DomainValidationError("至少提供 title、body 或 course_id 之一")
         return self
 
 
@@ -247,3 +259,27 @@ class MyPointsResponse(BaseModel):
 
     balance: int
     entries: list[PointEntryResponse]
+
+
+class CourseLeaderboardEntryResponse(BaseModel):
+    """课程贡献排行榜条目（F17）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    display_name: str
+    accepted_count: int
+    net_votes: int
+    answer_count: int
+    rank: int
+
+
+class CourseLeaderboardResponse(BaseModel):
+    """GET /api/v1/courses/{course_id}/leaderboard 响应（F17）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    course_id: UUID
+    course_code: str
+    course_name: str
+    entries: list[CourseLeaderboardEntryResponse]
