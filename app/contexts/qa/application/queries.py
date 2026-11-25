@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
+from app.contexts.qa.domain.repository import (
+    CourseLeaderboardEntry,
+    QuestionFilter,
+    QuestionSort,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,3 +35,21 @@ class ListRelatedQuestionsQuery:
 
     question_id: UUID
     limit: int = 5
+
+
+@dataclass(frozen=True, slots=True)
+class GetCourseLeaderboardQuery:
+    """课程贡献排行榜查询（F17）：limit 边界 1~50。"""
+
+    course_id: UUID
+    limit: int = 20
+
+
+@dataclass(frozen=True, slots=True)
+class CourseLeaderboardView:
+    """课程贡献排行榜视图（F17）。"""
+
+    course_id: UUID
+    course_code: str
+    course_name: str
+    entries: list[CourseLeaderboardEntry]

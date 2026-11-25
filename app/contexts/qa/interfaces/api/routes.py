@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.contexts.qa.interfaces.api.answers import answers_router
 from app.contexts.qa.interfaces.api.badges import router as badges_router
 from app.contexts.qa.interfaces.api.bounty import bounty_router
+from app.contexts.qa.interfaces.api.course_leaderboard import course_leaderboard_router
 from app.contexts.qa.interfaces.api.points import points_router
 from app.contexts.qa.interfaces.api.questions import router
 from app.contexts.qa.interfaces.api.tags import tags_router
@@ -13,6 +14,7 @@ __all__ = [
     "answers_router",
     "badges_router",
     "bounty_router",
+    "course_leaderboard_router",
     "points_router",
     "router",
     "tags_router",

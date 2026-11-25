@@ -191,6 +191,19 @@
   - 课程不存在 → **404**；按 `(enrolled_at ASC, id ASC)` 分页返回 `{items, total, page, page_size, total_pages}`。
   - `CourseStudentItem` 最小披露仅返回 `{student_id, student_name, enrolled_at}`（绝不暴露 `email`、学工号或密码哈希），`student_name` 随 F11 实时回填。
 
+## 四点十九、问题关联课程与课程榜单（F17）
+
+- **发问与编辑课程关联（`POST /api/v1/questions`、`PATCH /api/v1/questions/{question_id}`）**：
+  - `AskQuestionRequest` 新增可选 `course_id: UUID | null`（不传或 `null` 时向后兼容，不关联课程）；
+  - `EditQuestionRequest` 新增可选 `course_id: UUID | null`（允许仅传 `{"course_id": null}` 解绑课程；空 `{}` → **422**；不传 `course_id` 保留原有绑定；已关闭问题仍 **409**）；
+  - 准入规则：课程不存在 → **404**（`detail: "课程不存在"`）；**学生**关联/改绑课程必须已选修该课程，未选修 → **403**（`detail: "仅已选修该课程的学生可在该课程下提问"`）；**教师 / 助教 / 管理员**允许跨课程关联（仅要求课程存在）。
+- **课程筛选与字段回填**：
+  - `GET /api/v1/questions` 新增可选 Query `course_id: UUID | null`，可与 `tag`、`status`、`q`、`created_from`/`created_to`、`sort` 及分页自由组合，`total` 与列表同口径；
+  - `QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse` 均增量暴露 `course_id` 与 `course_name`（无课程题两者均为 `null`）。
+- **课程贡献排行榜（`GET /api/v1/courses/{course_id}/leaderboard`）**：
+  - **公开**，无需登录；`limit` 1~50（默认 20，越界 **422**）；课程不存在 → **404**；空课程返回 `200` + `entries: []`；
+  - 统计口径：仅基于该课程下未软删除问题关联的未软删除回答聚合 `accepted_count`、`net_votes`、`answer_count`，按 `(accepted_count DESC, net_votes DESC, answer_count DESC, author_id ASC)` 排序，`rank` 使用同分同名次（`RANK()` 按 `accepted_count DESC, net_votes DESC`），实时回填 F11 `display_name`；**与 `reputation_ledgers` 及全站排行榜完全独立**。
+
 ## 五、开发期调试入口
 
 后端跑起来后直接开 **Swagger UI**：`http://localhost:<port>/docs`——交互式调试每个端点，与 `openapi.json` 同源生成。

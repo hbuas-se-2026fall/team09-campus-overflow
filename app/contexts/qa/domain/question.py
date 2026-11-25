@@ -13,6 +13,7 @@ from app.contexts.qa.domain.errors import (
 )
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.domain.value_objects import Body, Title
+from app.shared.sentinel import UNSET, UnsetType
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +64,7 @@ class Question:
         default_factory=list, repr=False, compare=False
     )
     deleted_at: datetime | None = None
+    course_id: UUID | None = None
 
     @property
     def is_deleted(self) -> bool:
@@ -116,8 +118,14 @@ class Question:
         if self.status is QuestionStatus.CLOSED:
             raise QuestionClosedError(f"已关闭的问题不可{action}")
 
-    def edit_title_body(self, *, title_value: str, body_value: str) -> None:
-        """编辑标题+正文（US-Q08；裁定 D6 仅标题+正文，标签不可编辑）。
+    def edit_title_body(
+        self,
+        *,
+        title_value: str,
+        body_value: str,
+        course_id: UUID | None | UnsetType = UNSET,
+    ) -> None:
+        """编辑标题+正文（US-Q08；裁定 D6 仅标题+正文，标签不可编辑；F17 可选变更课程关联）。
 
         已关闭问题不可编辑（QuestionClosedError→409，全冻结裁定）；
         值对象先构后赋——任一校验失败（ValueError→422）不产生半改状态。
@@ -127,6 +135,8 @@ class Question:
         body = Body(body_value)
         self.title = title
         self.body = body
+        if not isinstance(course_id, UnsetType):
+            self.course_id = course_id
 
     @classmethod
     def ask(
@@ -136,6 +146,7 @@ class Question:
         body_value: str,
         author_id: UUID,
         tags: list[Tag] | None = None,
+        course_id: UUID | None = None,
     ) -> Question:
         """工厂：发布问题。值对象即校验（标题/正文非空且长度合法），并发布 QuestionPublished。
 
@@ -149,6 +160,7 @@ class Question:
             author_id=author_id,
             created_at=now,
             tags=list(tags) if tags else [],
+            course_id=course_id,
         )
         question.events.append(
             QuestionPublished(question_id=question.id, author_id=author_id, occurred_at=now)

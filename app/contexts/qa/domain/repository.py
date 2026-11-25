@@ -47,6 +47,7 @@ class QuestionFilter:
     created_from: datetime | None = None
     created_to: datetime | None = None
     q: str | None = None
+    course_id: UUID | None = None
     tag_keys: tuple[str, ...] = field(init=False, default=())
 
     def __post_init__(self) -> None:
@@ -312,4 +313,25 @@ class TagCatalogRepository(Protocol):
 
     async def list_all(self) -> list[Tag]:
         """列出目录全部标签（显示名 = 建目时的规范名）。"""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class CourseLeaderboardEntry:
+    """课程贡献排行榜条目（F17：基于课程内活跃问题采纳数与净赞数只读聚合）。"""
+
+    user_id: UUID
+    accepted_count: int
+    net_votes: int
+    answer_count: int
+    rank: int
+
+
+class CourseLeaderboardRepository(Protocol):
+    """课程贡献榜单只读查询端口（ISP：独立于 QuestionRepository）。"""
+
+    async def list_top_contributors(
+        self, course_id: UUID, *, limit: int
+    ) -> list[CourseLeaderboardEntry]:
+        """按采纳数降序、净赞数降序聚合课程答主贡献排名。"""
         ...

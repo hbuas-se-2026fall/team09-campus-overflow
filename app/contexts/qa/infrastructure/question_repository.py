@@ -54,6 +54,7 @@ def _rebuild_question(model: QuestionModel, tags: list[Tag]) -> Question:
         status=QuestionStatus(model.status),
         tags=tags,
         deleted_at=model.deleted_at,
+        course_id=model.course_id,
     )
 
 
@@ -75,6 +76,8 @@ def _apply_filters(
         conditions.append(QuestionModel.created_at >= filters.created_from)
     if filters.created_to is not None:
         conditions.append(QuestionModel.created_at <= filters.created_to)
+    if filters.course_id is not None:
+        conditions.append(QuestionModel.course_id == filters.course_id)
     if filters.q is not None:
         # F02：标题 + 正文单条件 OR——同一行双命中仍只返回一次，不需要 DISTINCT；
         # 通配符经 escape_like 字面转义，escape 参数与转义符成对（"\\" 即单个反斜杠）
@@ -116,6 +119,7 @@ class SqlAlchemyQuestionRepository:
                 created_at=question.created_at,
                 accepted_answer_id=question.accepted_answer_id,
                 status=question.status.value,
+                course_id=question.course_id,
             )
         )
         await self._session.flush()
@@ -150,6 +154,7 @@ class SqlAlchemyQuestionRepository:
                 "title": question.title.value,
                 "body": question.body.value,
                 "accepted_answer_id": question.accepted_answer_id,
+                "course_id": question.course_id,
             }
         stmt = (
             sql_update(QuestionModel)

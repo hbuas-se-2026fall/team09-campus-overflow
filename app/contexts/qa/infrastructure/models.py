@@ -52,6 +52,10 @@ class QuestionModel(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 课程关联（F17）：可空 UUID（零跨上下文外键，存量问题 NULL）
+    course_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
 
     __table_args__ = (
         # F09：F02 的 ILIKE '%q%' 标题/正文模糊搜索走 pg_trgm GIN；模型同步声明防
