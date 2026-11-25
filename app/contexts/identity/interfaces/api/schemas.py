@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.contexts.identity.domain.user import Role
 from app.shared.errors import DomainValidationError
 from app.shared.text_validation import reject_unsafe_text
 
@@ -135,3 +136,41 @@ class TokenPairResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # Access 令牌有效秒数（15min = 900）
+
+
+class AdminUserItem(BaseModel):
+    """管理员用户列表项与角色变更响应白名单（F15，绝不含 password_hash）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    role: Role
+    email: str
+    student_id: str | None = None
+    staff_id: str | None = None
+    display_name: str
+    nickname: str | None = None
+    college: str | None = None
+    class_name: str | None = None
+    email_verified: bool = False
+    created_at: datetime
+
+
+class AdminUserListResponse(BaseModel):
+    """GET /api/v1/admin/users 分页响应（F15）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AdminUserItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class UpdateUserRoleRequest(BaseModel):
+    """PATCH /api/v1/admin/users/{user_id}/role 请求体（F15）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Role

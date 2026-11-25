@@ -34,6 +34,22 @@ def _to_domain(model: AnswerModel, *, votes_count: int = 0) -> Answer:
         is_accepted=model.is_accepted,
         votes_count=votes_count,
         deleted_at=model.deleted_at,
+        is_teacher_verified=bool(model.is_teacher_verified),
+        verified_by=model.verified_by,
+        verified_at=model.verified_at,
+    )
+
+
+def _active_open_question_exists() -> Any:
+    """F12/F15 共用子查询谓词：父问题未软删除且处于 open 态。"""
+    return exists(
+        select(1)
+        .where(
+            QuestionModel.id == AnswerModel.question_id,
+            QuestionModel.deleted_at.is_(None),
+            QuestionModel.status != QuestionStatus.CLOSED.value,
+        )
+        .correlate(AnswerModel)
     )
 
 
@@ -52,6 +68,9 @@ class SqlAlchemyAnswerRepository:
                 author_id=answer.author_id,
                 is_accepted=answer.is_accepted,
                 created_at=answer.created_at,
+                is_teacher_verified=answer.is_teacher_verified,
+                verified_by=answer.verified_by,
+                verified_at=answer.verified_at,
             )
         )
         await self._session.flush()
@@ -60,22 +79,13 @@ class SqlAlchemyAnswerRepository:
         # 采纳翻转（US-V03）：只同步可变态 is_accepted，并发与软删除双兜底：
         # ① 部分唯一索引 uq_answers_one_accepted_per_question 防同题多采纳；
         # ② 条件 UPDATE 守住回答未删、未采纳且父问题未删未关，rowcount=0 精准转译 404/409。
-        active_open_question = exists(
-            select(1)
-            .where(
-                QuestionModel.id == AnswerModel.question_id,
-                QuestionModel.deleted_at.is_(None),
-                QuestionModel.status != QuestionStatus.CLOSED.value,
-            )
-            .correlate(AnswerModel)
-        )
         stmt = (
             sql_update(AnswerModel)
             .where(
                 AnswerModel.id == answer.id,
                 AnswerModel.is_accepted.is_(False),
                 AnswerModel.deleted_at.is_(None),
-                active_open_question,
+                _active_open_question_exists(),
             )
             .values(is_accepted=True)
             .execution_options(synchronize_session=False)
@@ -107,31 +117,9 @@ class SqlAlchemyAnswerRepository:
             raise AnswerAlreadyAcceptedError("该答案已被采纳")
         raise QuestionClosedError("已关闭的问题不可采纳（并发兜底）")
 
-    async def update_body(self, answer: Answer) -> None:
-        """F12/F13：仅更新回答正文（条件 UPDATE 兜底回答未删且所属问题未删未关）。"""
-        open_question_exists = exists(
-            select(1)
-            .where(
-                QuestionModel.id == AnswerModel.question_id,
-                QuestionModel.deleted_at.is_(None),
-                QuestionModel.status != QuestionStatus.CLOSED.value,
-            )
-            .correlate(AnswerModel)
-        )
-        stmt = (
-            sql_update(AnswerModel)
-            .where(
-                AnswerModel.id == answer.id,
-                AnswerModel.deleted_at.is_(None),
-                open_question_exists,
-            )
-            .values(body=answer.body.value)
-            .execution_options(synchronize_session=False)
-        )
-        result = cast(CursorResult[Any], await self._session.execute(stmt))
-        if result.rowcount > 0:
-            return
-
+    async def _raise_missing_or_closed(
+        self, answer_id: UUID, *, closed_message: str
+    ) -> None:
         row = (
             await self._session.execute(
                 select(
@@ -141,14 +129,58 @@ class SqlAlchemyAnswerRepository:
                 )
                 .select_from(AnswerModel)
                 .join(QuestionModel, QuestionModel.id == AnswerModel.question_id)
-                .where(AnswerModel.id == answer.id)
+                .where(AnswerModel.id == answer_id)
             )
         ).first()
         if row is None or row[0] is not None:
             raise AnswerNotFoundError("回答不存在")
         if row[1] is not None:
             raise QuestionNotFoundError("问题不存在")
-        raise QuestionClosedError("已关闭的问题不可编辑回答（并发兜底）")
+        raise QuestionClosedError(closed_message)
+
+    async def update_body(self, answer: Answer) -> None:
+        """F12/F13：仅更新回答正文（条件 UPDATE 兜底回答未删且所属问题未删未关）。"""
+        stmt = (
+            sql_update(AnswerModel)
+            .where(
+                AnswerModel.id == answer.id,
+                AnswerModel.deleted_at.is_(None),
+                _active_open_question_exists(),
+            )
+            .values(body=answer.body.value)
+            .execution_options(synchronize_session=False)
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        if result.rowcount > 0:
+            return
+        await self._raise_missing_or_closed(
+            answer.id,
+            closed_message="已关闭的问题不可编辑回答（并发兜底）",
+        )
+
+    async def update_verification(self, answer: Answer) -> None:
+        """F15：仅更新回答认证状态（条件 UPDATE 兜底回答未删且所属问题未删未关）。"""
+        stmt = (
+            sql_update(AnswerModel)
+            .where(
+                AnswerModel.id == answer.id,
+                AnswerModel.deleted_at.is_(None),
+                _active_open_question_exists(),
+            )
+            .values(
+                is_teacher_verified=answer.is_teacher_verified,
+                verified_by=answer.verified_by,
+                verified_at=answer.verified_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        if result.rowcount > 0:
+            return
+        await self._raise_missing_or_closed(
+            answer.id,
+            closed_message="已关闭的问题不可变更回答认证状态（并发兜底）",
+        )
 
     async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
         """F13 条件软删除：父问题未删、回答未删且未采纳时写入 deleted_at。"""

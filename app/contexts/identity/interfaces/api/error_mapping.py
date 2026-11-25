@@ -19,6 +19,8 @@ from app.contexts.identity.domain.errors import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidVerificationCodeError,
+    SelfRoleChangeError,
+    UserNotFoundError,
     VerificationCooldownError,
 )
 from app.platform.http.error_mapping import make_domain_error_handler
@@ -27,6 +29,8 @@ IDENTITY_ERROR_STATUS: dict[type[Exception], int] = {
     EmailAlreadyExistsError: status.HTTP_409_CONFLICT,
     IdentityAlreadyExistsError: status.HTTP_409_CONFLICT,
     EmailAlreadyVerifiedError: status.HTTP_409_CONFLICT,
+    SelfRoleChangeError: status.HTTP_409_CONFLICT,
+    UserNotFoundError: status.HTTP_404_NOT_FOUND,
     InvalidCredentialsError: status.HTTP_401_UNAUTHORIZED,
     InvalidRefreshTokenError: status.HTTP_401_UNAUTHORIZED,
     AccountLockedError: status.HTTP_423_LOCKED,

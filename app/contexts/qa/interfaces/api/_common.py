@@ -11,12 +11,15 @@ from fastapi import Response, status
 
 from app.contexts.identity.application.ports import (
     UserSummary,
+    UserSummaryReader,
     pick_summary_display_name,
 )
 from app.contexts.qa.application.commands import CreateCommentCommand, VoteOnCommand
 from app.contexts.qa.application.comment_use_case import CreateCommentUseCase
 from app.contexts.qa.application.vote_use_case import VoteOnUseCase
+from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.comment import Comment, CommentTarget
+from app.contexts.qa.domain.repository import CommentRepository
 from app.contexts.qa.domain.vote import VoteCast, VoteDirection, VoteTarget
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
@@ -26,6 +29,7 @@ from app.contexts.qa.interfaces.api.deps import (
     VoteRepo,
 )
 from app.contexts.qa.interfaces.api.schemas import (
+    AnswerResponse,
     CommentRequest,
     CommentResponse,
     VoteRequest,
@@ -114,3 +118,62 @@ def comment_response(comment: Comment, *, author_name: str) -> CommentResponse:
 def display_name_for(summaries: dict[UUID, UserSummary], user_id: UUID) -> str:
     """从批量摘要字典取展示名；缺失用户安全降级，绝不因孤立引用报错。"""
     return pick_summary_display_name(summaries, user_id)
+
+
+def answer_response(
+    answer: Answer,
+    *,
+    author_name: str,
+    verified_by_name: str | None = None,
+    comments: list[CommentResponse] | None = None,
+) -> AnswerResponse:
+    """回答白名单响应唯一装配处（详情 / 发布 / 编辑 / 认证共用，F15）。"""
+    return AnswerResponse(
+        id=answer.id,
+        body=answer.body.value,
+        author_id=answer.author_id,
+        author_name=author_name,
+        created_at=answer.created_at,
+        votes=answer.votes_count,
+        is_accepted=answer.is_accepted,
+        is_teacher_verified=answer.is_teacher_verified,
+        verified_by_name=verified_by_name,
+        verified_at=answer.verified_at,
+        comments=comments or [],
+    )
+
+
+async def hydrate_answer_response(
+    answer: Answer,
+    *,
+    comments: CommentRepository,
+    summary_reader: UserSummaryReader,
+    known_author_name: str | None = None,
+) -> AnswerResponse:
+    """单答路由共用装配：加载评论并单次 IN 查询回填展示名（含认证人，零 N+1）。"""
+    answer_comments = await comments.list_by_target(CommentTarget.ANSWER, answer.id)
+    user_ids: list[UUID] = [c.author_id for c in answer_comments]
+    if known_author_name is None:
+        user_ids.append(answer.author_id)
+    if answer.verified_by is not None:
+        user_ids.append(answer.verified_by)
+    summaries = await summary_reader.get_summaries(user_ids)
+    author_name = (
+        known_author_name
+        if known_author_name is not None
+        else display_name_for(summaries, answer.author_id)
+    )
+    verified_by_name = (
+        display_name_for(summaries, answer.verified_by)
+        if answer.verified_by is not None
+        else None
+    )
+    return answer_response(
+        answer,
+        author_name=author_name,
+        verified_by_name=verified_by_name,
+        comments=[
+            comment_response(c, author_name=display_name_for(summaries, c.author_id))
+            for c in answer_comments
+        ],
+    )

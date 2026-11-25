@@ -115,3 +115,18 @@ class DeleteAnswerCommand:
 
     answer_id: UUID
     actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyAnswerCommand:
+    """认证回答命令（F15）。actor_id 来自认证依赖（teacher / ta / admin）。"""
+
+    answer_id: UUID
+    actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class UnverifyAnswerCommand:
+    """取消回答认证命令（F15）。"""
+
+    answer_id: UUID

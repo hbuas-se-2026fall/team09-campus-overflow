@@ -25,9 +25,10 @@ from app.contexts.identity.domain.errors import (
     EmailVerificationUnavailableError,
     InvalidCredentialsError,
     InvalidVerificationCodeError,
+    UserNotFoundError,
     VerificationCooldownError,
 )
-from app.contexts.identity.domain.user import User
+from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.domain.value_objects import (
     ClassName,
     College,
@@ -89,6 +90,23 @@ class FakeUserRepo:
         self.verified_calls += 1
         if self.user is not None and self.user.id == user_id:
             self.user.mark_email_verified()
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        if self.user is None or (role is not None and self.user.role != role):
+            return [], 0
+        return ([self.user], 1) if page == 1 and page_size >= 1 else ([], 1)
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        if self.user is None or self.user.id != user_id:
+            raise UserNotFoundError("用户不存在")
+        self.user.change_role(new_role)
+        return self.user
 
 
 class FakeVerificationStore:

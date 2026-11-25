@@ -29,10 +29,13 @@ def test_resolve_user_role_prefers_teacher_over_student_and_logs_warning(
     assert str(uid) in caplog.text
 
 
-def test_resolve_user_role_unknown_roles_sorted_after_known_roles() -> None:
+def test_resolve_user_role_follows_f15_priority_and_unknown_after() -> None:
     uid = UUID("33333333-3333-3333-3333-333333333333")
-    assert _resolve_user_role(uid, ["ta", "admin", "student"]) == "student"
-    assert _resolve_user_role(uid, ["ta", "admin"]) == "admin"
+    assert _resolve_user_role(uid, ["student", "ta", "teacher", "admin"]) == "admin"
+    assert _resolve_user_role(uid, ["student", "ta", "teacher"]) == "teacher"
+    assert _resolve_user_role(uid, ["student", "ta"]) == "ta"
+    assert _resolve_user_role(uid, ["guest", "ta"]) == "ta"
+    assert _resolve_user_role(uid, ["guest", "auditor"]) == "auditor"
 
 
 def test_display_name_for_falls_back_for_missing_user() -> None:

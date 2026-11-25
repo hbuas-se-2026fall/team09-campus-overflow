@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Response, status
 
 from app.contexts.identity.interfaces.api.deps import (
+    AnswerVerifierUser,
     CurrentUser,
     UserSummaryReaderDep,
 )
@@ -15,15 +16,20 @@ from app.contexts.qa.application.commands import (
     AcceptAnswerCommand,
     DeleteAnswerCommand,
     EditAnswerCommand,
+    UnverifyAnswerCommand,
+    VerifyAnswerCommand,
 )
 from app.contexts.qa.application.delete_answer_use_case import DeleteAnswerUseCase
 from app.contexts.qa.application.edit_answer_use_case import EditAnswerUseCase
+from app.contexts.qa.application.verify_answer_use_case import (
+    UnverifyAnswerUseCase,
+    VerifyAnswerUseCase,
+)
 from app.contexts.qa.domain.answer import AnswerAccepted
 from app.contexts.qa.domain.comment import CommentTarget
 from app.contexts.qa.interfaces.api._common import (
-    comment_response,
     create_comment_on_target,
-    display_name_for,
+    hydrate_answer_response,
 )
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
@@ -65,21 +71,53 @@ async def edit_answer(
             body=payload.body,
         )
     )
-    answer_comments = await comments.list_by_target(CommentTarget.ANSWER, answer.id)
-    summaries = await summary_reader.get_summaries(c.author_id for c in answer_comments)
-    return AnswerResponse(
-        id=answer.id,
-        body=answer.body.value,
-        author_id=answer.author_id,
-        author_name=user.display_name,
-        created_at=answer.created_at,
-        votes=answer.votes_count,
-        is_accepted=answer.is_accepted,
-        comments=[
-            comment_response(c, author_name=display_name_for(summaries, c.author_id))
-            for c in answer_comments
-        ],
+    return await hydrate_answer_response(
+        answer,
+        comments=comments,
+        summary_reader=summary_reader,
+        known_author_name=user.display_name,
     )
+
+
+@answers_router.post(
+    "/{answer_id}/verify",
+    response_model=AnswerResponse,
+    summary="教师/助教/管理员认证回答（F15；幂等 200；学生 403 / 关闭问题 409）",
+)
+async def verify_answer(
+    answer_id: UUID,
+    user: AnswerVerifierUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+    comments: CommentRepo,
+    notification_writer: NotificationWriterDep,
+    summary_reader: UserSummaryReaderDep,
+) -> AnswerResponse:
+    answer = await VerifyAnswerUseCase(
+        questions, answers, notification_writer
+    ).execute(VerifyAnswerCommand(answer_id=answer_id, actor_id=user.id))
+    return await hydrate_answer_response(
+        answer,
+        comments=comments,
+        summary_reader=summary_reader,
+    )
+
+
+@answers_router.delete(
+    "/{answer_id}/verify",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="教师/助教/管理员取消回答认证（F15；幂等 204；学生 403 / 关闭问题 409）",
+)
+async def unverify_answer(
+    answer_id: UUID,
+    _user: AnswerVerifierUser,
+    questions: QuestionRepo,
+    answers: AnswerRepo,
+) -> Response:
+    await UnverifyAnswerUseCase(questions, answers).execute(
+        UnverifyAnswerCommand(answer_id=answer_id)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @answers_router.delete(

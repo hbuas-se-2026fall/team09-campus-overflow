@@ -1,6 +1,6 @@
-"""通知接口 schema（F04 / F14）：白名单响应。
+"""通知接口 schema（F04 / F14 / F15）：白名单响应。
 
-type 支持 answer_posted / answer_accepted / comment_created / comment_replied；
+type 支持 answer_posted / answer_accepted / answer_verified / comment_created / comment_replied；
 target_type 支持 question / answer / comment。
 """
 

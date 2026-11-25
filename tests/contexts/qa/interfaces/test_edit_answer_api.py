@@ -120,6 +120,9 @@ async def test_edit_answer_returns_200_with_votes_comments_and_author_names(
         "created_at",
         "votes",
         "is_accepted",
+        "is_teacher_verified",
+        "verified_by_name",
+        "verified_at",
         "comments",
     }
     assert data["id"] == aid

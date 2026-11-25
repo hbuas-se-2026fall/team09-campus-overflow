@@ -15,7 +15,26 @@ from app.contexts.discovery.domain.notification import (
 
 def test_notification_enums_include_comment_replied_and_comment_target() -> None:
     assert NotificationType.COMMENT_REPLIED.value == "comment_replied"
+    assert NotificationType.ANSWER_VERIFIED.value == "answer_verified"
+    assert len(NotificationType.ANSWER_VERIFIED.value) <= 20
     assert NotificationTargetType.COMMENT.value == "comment"
+
+
+def test_build_notification_for_answer_verified() -> None:
+    recipient, actor, aid, event_id, qid = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    notification = build_notification(
+        recipient_id=recipient,
+        type="answer_verified",
+        actor_id=actor,
+        target_type="answer",
+        target_id=aid,
+        source_event_id=event_id,
+        question_id=qid,
+    )
+    assert notification.type is NotificationType.ANSWER_VERIFIED
+    assert notification.target_type is NotificationTargetType.ANSWER
+    assert notification.target_id == aid
+    assert notification.question_id == qid
 
 
 def test_build_notification_for_comment_reply() -> None:

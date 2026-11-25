@@ -15,8 +15,11 @@ from app.contexts.identity.application.commands import LogoutCommand, RefreshTok
 from app.contexts.identity.application.logout_use_case import LogoutUseCase
 from app.contexts.identity.application.ports import REFRESH_TOKEN_TTL
 from app.contexts.identity.application.refresh_token_use_case import RefreshTokenUseCase
-from app.contexts.identity.domain.errors import InvalidRefreshTokenError
-from app.contexts.identity.domain.user import User
+from app.contexts.identity.domain.errors import (
+    InvalidRefreshTokenError,
+    UserNotFoundError,
+)
+from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.domain.value_objects import Email, PasswordHash
 
 _OLD_TOKEN = "old-refresh-token"
@@ -41,6 +44,23 @@ class FakeUserRepository:
 
     async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
         self.reads += 1
+        return self._user
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        if self._user is None or (role is not None and self._user.role != role):
+            return [], 0
+        return ([self._user], 1) if page == 1 and page_size >= 1 else ([], 1)
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        if self._user is None or self._user.id != user_id:
+            raise UserNotFoundError("用户不存在")
+        self._user.change_role(new_role)
         return self._user
 
 

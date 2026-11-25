@@ -10,6 +10,7 @@ from app.config.settings import DEFAULT_EMAIL_VERIFY_HMAC_SECRET, get_settings
 from app.contexts.discovery.interfaces.api.routes import (
     router as discovery_router,
 )
+from app.contexts.identity.interfaces.api.admin_routes import admin_router
 from app.contexts.identity.interfaces.api.error_mapping import (
     register_identity_error_handlers,
 )
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     register_qa_error_handlers(application)
     application.include_router(auth_router)
     application.include_router(users_router)
+    application.include_router(admin_router)
     application.include_router(qa_router)
     application.include_router(qa_answers_router)
     application.include_router(qa_tags_router)

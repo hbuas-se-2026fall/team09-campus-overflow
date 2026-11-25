@@ -75,11 +75,26 @@ async def test_post_answer_returns_201_whitelist(client: httpx.AsyncClient) -> N
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert set(body.keys()) == {
-        "id", "body", "author_id", "author_name", "created_at", "votes", "is_accepted", "comments",
-    }  # comments 随分支 2 加入白名单
+        "id",
+        "body",
+        "author_id",
+        "author_name",
+        "created_at",
+        "votes",
+        "is_accepted",
+        "is_teacher_verified",
+        "verified_by_name",
+        "verified_at",
+        "comments",
+    }  # comments 随分支 2 加入白名单；is_teacher_verified/verified_by_name/verified_at 随 F15 加入
     assert body["body"] == "这是回答正文"  # strip 端到端
     assert body["author_id"] == user_id
     assert body["votes"] == 0 and body["is_accepted"] is False
+    assert (
+        body["is_teacher_verified"] is False
+        and body["verified_by_name"] is None
+        and body["verified_at"] is None
+    )
 
 
 async def test_post_answer_requires_login(client: httpx.AsyncClient) -> None:

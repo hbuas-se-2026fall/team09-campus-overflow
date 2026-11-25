@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -61,3 +62,43 @@ def test_answer_soft_delete_accepted_rejected() -> None:
 
     assert answer.is_deleted is False
     assert answer.deleted_at is None
+
+
+def test_answer_verify_and_unverify_are_idempotent_and_preserved_across_edits() -> None:
+    answer = Answer.post(
+        question_id=uuid4(),
+        author_id=uuid4(),
+        body_value="PostgreSQL 中 MVCC 通过事务快照可见性规则避免读写互相阻塞。",
+    )
+    assert answer.is_teacher_verified is False
+    assert answer.verified_by is None
+    assert answer.verified_at is None
+
+    teacher_a = uuid4()
+    teacher_b = uuid4()
+    t1 = datetime(2026, 11, 25, 10, 0, tzinfo=UTC)
+    t2 = datetime(2026, 11, 25, 11, 0, tzinfo=UTC)
+
+    assert answer.verify(teacher_a, at=t1) is True
+    assert answer.is_teacher_verified is True
+    assert answer.verified_by == teacher_a
+    assert answer.verified_at == t1
+
+    # 幂等：重复认证保持原认证人与时间不变
+    assert answer.verify(teacher_b, at=t2) is False
+    assert answer.verified_by == teacher_a
+    assert answer.verified_at == t1
+
+    # edit_body 与 accept 保留既有认证状态
+    answer.edit_body(body_value="PostgreSQL MVCC 结合 HOT 更新减少了索引膨胀。")
+    answer.accept()
+    assert answer.is_teacher_verified is True
+    assert answer.verified_by == teacher_a
+    assert answer.verified_at == t1
+
+    # 取消认证与重复取消幂等
+    assert answer.unverify() is True
+    assert answer.is_teacher_verified is False
+    assert answer.verified_by is None
+    assert answer.verified_at is None
+    assert answer.unverify() is False

@@ -24,8 +24,8 @@
 | 401 | 字符串（如"令牌无效或已过期"） | Bearer 依赖层 | 跳登录页 |
 | 400 | 字符串（如"请求数据无法被数据库接受…""验证码无效或已过期"） | 数据库兜底 / 邮箱验证码校验失败（错码/过期/超 5 次） | 提示检查输入或重发验证码 |
 | 413 | 字符串"request body too large" | 1 MiB body 上限中间件 | 提示内容过大 |
-| 404 | 字符串（如"问题不存在""回答不存在""评论不存在"） | 业务语义 | 展示空态 |
-| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"/"该问题已有采纳答案，不可删除"/"已采纳的回答不可删除"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送、删除已采纳问题或回答 | 展示提示；**勿自动重试** |
+| 404 | 字符串（如"问题不存在""回答不存在""评论不存在""用户不存在"） | 业务语义 | 展示空态 |
+| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"/"该问题已有采纳答案，不可删除"/"已采纳的回答不可删除"/"不可修改本人角色"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送、删除已采纳问题或回答、不可修改本人角色 | 展示提示；**勿自动重试** |
 | 423 | 字符串"尝试次数过多，账号临时锁定，请稍后再试" | 登录失败超限（US-L04：5 次/15 分钟窗口，成功登录即清零） | 提示稍后再试；**勿自动重试** |
 | 429 | 字符串（如"发送过于频繁，请 60 秒后再试"） | 邮箱验证码发送冷却（F10：60s 冷却） | 展示倒计时，勿自动重试 |
 | 405 | 标准 Method Not Allowed | 方法面 | —（请求方式写错才会遇到） |
@@ -99,7 +99,7 @@
 - `GET /unread-count`：`{count}`
 - `POST /{id}/read`：幂等 **204**；非本人/不存在 → **404**（不泄露存在性）
 - `POST /read-all`：`{updated}`（本次由未读转为已读的条数，幂等）
-- 通知类型：`answer_posted` / `answer_accepted` / `comment_created` / `comment_replied`（F14）；`target_type` 支持 `question` / `answer` / `comment`（F14）；自己操作自己的内容不产生通知
+- 通知类型：`answer_posted` / `answer_accepted` / `answer_verified`（F15）/ `comment_created` / `comment_replied`（F14）；`target_type` 支持 `question` / `answer` / `comment`（F14）；自己操作自己的内容不产生通知
 - 每条通知含可选 `question_id`（新写入的通知无论目标为问题、回答还是评论均带所属 `question_id`，存量历史通知可能为 `null`）
 - 同事件对同一收件人只落一条（库级唯一键），重复触发不会重复插入
 
@@ -122,7 +122,7 @@
 
 ## 四点十三、公开展示名与个人主页（F11）
 
-- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `学生#<8位hex>`、`教师#<8位hex>` 或通用 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
+- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `管理员#<8位hex>`、`教师#<8位hex>`、`助教#<8位hex>`、`学生#<8位hex>`，未知角色回退 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
 - **增量回填字段**：
   - 问答与评论（`QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse`、`AnswerResponse`、`CommentResponse`）均增量返回 `author_name`；
   - 排行榜条目（`LeaderboardEntryResponse`）增量返回 `display_name`（即使命中 60s 榜单缓存，展示名仍实时查询回填）；
@@ -134,7 +134,7 @@
 - 需登录（401）；**仅回答者本人**可编辑（非作者含提问者均 **403** `"仅回答者可编辑回答"`）。
 - 请求体：`{"body": "1~5000字"}`（`extra=forbid`、`str_strip_whitespace=True`，纯空白/控制字符 → 422）。
 - 回答不存在 → **404**；所属问题已关闭 → **409**；**已采纳回答**（所属问题必为 `open` 态）仍允许回答者本人编辑且保持 `is_accepted=true`。
-- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入）。
+- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name`、`is_teacher_verified`、`verified_by_name`、`verified_at` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入），既有教师认证状态随正文编辑保留。
 
 ## 四点十五、软删除问题与回答（`DELETE /api/v1/questions/{question_id}`、`DELETE /api/v1/answers/{answer_id}`，F13）
 
@@ -158,6 +158,24 @@
 - **通知联动（同事务写入，自操作均跳过）**：
   - 一级评论：沿用原有行为，向宿主作者发 `comment_created`；
   - 二级回复：① 若父评论作者 ≠ 回复者，向父评论作者发 `comment_replied`（`target_type="comment"`, `target_id=parent_comment.id`, `question_id=所属问题ID`）；② 若宿主作者 ≠ 回复者 且 宿主作者 ≠ 父评论作者，向宿主作者发 `comment_created`（同人去重只发 1 条 `comment_replied`）。
+
+## 四点十七、RBAC 扩展与教师认证回答（F15）
+
+- **角色与实时鉴权边界**：
+  - 角色支持 `student` / `teacher` / `ta` / `admin`；
+  - `POST /api/v1/auth/register` 保持**仅允许 `"student"` 与 `"teacher"`**，传 `"ta"` / `"admin"` 一律返回 **422**；
+  - 受保护端点鉴权基于每次请求从 DB 实时读取的 `User.role`：管理员变更目标用户角色后，其既有 Access Token 在下次请求即按新角色生效/失效；
+  - 角色变更保留原 `students.student_id` / `teachers.staff_id`，用户仍可用原学号/工号登录；
+  - F07 教师悬赏 `POST /api/v1/questions/{id}/bounty` 保持**仅 `"teacher"`** 可发起（`student` / `ta` / `admin` 均返回 **403**）。
+- **管理员用户管理（`require_roles("admin")`，未登录 401，非 `admin` 403）**：
+  - `GET /api/v1/admin/users`：Query `page >= 1`（默认 1）、`page_size` 1~100（默认 20）、`role` 可选（`student`/`teacher`/`ta`/`admin`），按 `created_at DESC, id DESC` 排序；响应 `{items, total, page, page_size, total_pages}`，`AdminUserItem` 包含 `{id, role, email, student_id, staff_id, display_name, nickname, college, class_name, email_verified, created_at}`（绝不含 `password_hash`）；
+  - `PATCH /api/v1/admin/users/{user_id}/role`：请求体 `{"role": "student"|"teacher"|"ta"|"admin"}`（`extra=forbid`）；不可修改本人角色 → **409**（`detail: "不可修改本人角色"`）；目标用户不存在 → **404**（`detail: "用户不存在"`）；幂等变更到同角色返回 **200 + `AdminUserItem`**。
+- **教师/助教/管理员认证回答（`require_roles("teacher", "ta", "admin")`，未登录 401，学生 403）**：
+  - `POST /api/v1/answers/{answer_id}/verify`：首次认证或幂等重复认证均返回 **200 + `AnswerResponse`**（包含真实 `votes`、`author_name`、`is_accepted`、`is_teacher_verified=true`、`verified_by_name`、`verified_at`、有序 `comments[]`）；重复认证保持首次认证人与认证时间不变；
+  - `DELETE /api/v1/answers/{answer_id}/verify`：取消认证返回 **204**（未认证时同样幂等返回 **204**）；
+  - 状态守卫：回答已软删或所属问题已软删 → **404**；所属问题已关闭 → **409**；
+  - `AnswerResponse`（`GET /questions/{id}`、`POST /questions/{id}/answers`、`PATCH /answers/{id}`、`POST /answers/{id}/verify` 共用）：增量暴露 `is_teacher_verified`（默认 `false`）、`verified_by_name`（默认 `null`）、`verified_at`（默认 `null`）；
+  - 通知与声誉联动：仅在首次变为已认证且 `answer.author_id != actor_id` 时同事务向答主写入 `answer_verified` 通知（`target_type="answer"`, `target_id=answer.id`, `question_id=question.id`）；重复认证、自操作、取消认证均不发通知；**不触发声誉变动**。
 
 ## 五、开发期调试入口
 
