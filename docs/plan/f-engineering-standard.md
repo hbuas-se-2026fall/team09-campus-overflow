@@ -1,6 +1,6 @@
 # CampusOverflow · F 系列工程标准与研发规范（F01–F20）
 
-> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F15`，规划中 `F16–F20` 及顺接 `F21`）。
+> 适用范围：阶段 3 增量扩展与阶段 4 上线交付的全部 `Fxx` 特性工程（已交付 `F01–F16`，规划中 `F17–F20` 及顺接 `F21`）。
 > 上位约束：[GOALS.md](../../GOALS.md)、[.github/workflows/ci.yml](../../.github/workflows/ci.yml)、[tests/test_architecture.py](../../tests/test_architecture.py)、[docs/sprint/review-checklist.md](../sprint/review-checklist.md)。
 
 ---
@@ -123,7 +123,7 @@
 
 ## 五、F01–F20 全量工程总表
 
-### 1. 已交付基线（F01–F15）
+### 1. 已交付基线（F01–F16）
 
 | 编号 | 名称 | 上下文 | 关键交付与修补 | 迁移 | 台账 |
 |:---|:---|:---|:---|:---|:---|
@@ -142,20 +142,20 @@
 | **F13** | 软删除与全链路过滤 | `qa` | `questions` / `answers` 增 `deleted_at`；强制“已采纳回答/问题不可删”409；新增 `DELETE /questions/{id}` 与 `DELETE /answers/{id}`（作者重复删幂等 204、删题退还开放悬赏）；全链路查询与 F06 六路统计全量剔除 | `c90363e3c1fb` | [F13-soft-delete.md](../test/F13-soft-delete.md) |
 | **F14** | 评论二级回复 | `qa` + `discovery` | `comments` 增可空自引用 `parent_id`（`fk_comments_parent_id` `RESTRICT` + `ix_comments_parent_id` + `ck_comments_no_self_parent`）；严格两级树（跨宿主/三级 422、父不存在 404）；详情与编辑回答平铺有序返回 `parent_id`；`discovery` 新增 `comment_replied` / `comment` 通知类型并实现同人去重 | `609aeba713d3` | [F14-comment-replies.md](../test/F14-comment-replies.md) |
 | **F15** | RBAC 扩展与教师认证回答 | `identity` + `qa` + `discovery` | `Role` 扩展 `ta`/`admin`（注册仍禁提权 422，DB 实时鉴权，角色变更保留学工号与唯一 `user_roles`）；新增 `GET /api/v1/admin/users`、`PATCH /api/v1/admin/users/{user_id}/role`（禁改本人 409/404）与 `scripts/seed_admin.py`；`_ROLE_PRIORITY` 定死 4 角色；`Answer` 增 `is_teacher_verified`/`verified_by`/`verified_at` 与 `AnswerResponse` 单源同步（详情零 N+1）；新增 `POST`/`DELETE /api/v1/answers/{answer_id}/verify`（`teacher`/`ta`/`admin` 幂等 200/204，单根无环锁序）与 `NotificationType.ANSWER_VERIFIED` 首次通知 | `0c58c26e2c45` | [F15-rbac-and-verify.md](../test/F15-rbac-and-verify.md) |
+| **F16** | 重建 `course` 上下文与选课 | `course` | 四层重构与零跨上下文外键（`courses`/`enrollments`）；`CourseCode` 单源大写归一、`CourseName`/`Semester` 单行清洗；`GET/POST /api/v1/courses`、`POST /api/v1/courses/{course_id}/enroll`、`GET /api/v1/courses/{course_id}/students`（全角色权限矩阵 + F11 展示名回填 + 最小披露）；暴露窄只读已发布语言 `CourseAccessReaderDep` 供 F17 消费 | `965519fef7b7` | [F16-course-context.md](../test/F16-course-context.md) |
 
-> 当前基线契约规模：**34 paths / 40 operations**（[openapi.json](../../openapi.json)），CI 单测 **407 passed**（总覆盖率 **83.23%**，domain **94%**）；F15 定向集成与并发连续 2 轮 **10 passed × 2**（41.91s / 43.12s）；大板块 1（F14–F15 / `v1.1.0`）收口全量真库集成回归 **228 passed**（421.33s，F01–F15 合计 **635 passed**）。
+> 当前基线契约规模：**37 paths / 44 operations**（[openapi.json](../../openapi.json)），CI 单测 **462 passed**（总覆盖率 **83.41%**，domain **94%**）；F16 定向集成与并发连续 2 轮 **3 passed × 2**（12.47s / 12.28s），跨模块关联回归 **50 passed**（90.01s），真实 Uvicorn 冒烟 **28 HTTP 请求全绿**；上一收口里程碑 `v1.1.0` 全量真库集成回归 **228 passed**（421.33s，F01–F15）。
 
 ---
 
-### 2. 后续规划路线图（F16–F20，顺接 F21）
+### 2. 后续规划路线图（F17–F20，顺接 F21）
 
-> 阶段 A（F08–F11）与阶段 B（F12–F15，`v1.1.0` 范围）均已全部收口并归入 §5.1 基线表。
+> 阶段 A（F08–F11）与阶段 B（F12–F15，`v1.1.0` 范围）及阶段 C 首项 `F16` 均已归入 §5.1 基线表。
 
-#### 阶段 C：课程上下文与内容审核（F16–F18）
+#### 阶段 C：课程上下文与内容审核（F17–F18）
 
 | 编号 | 名称 | 核心工程内容 | 迁移 |
 |:---|:---|:---|:---|
-| **F16** | 重建 `course` 上下文（已预留） | 新建 `app/contexts/course/{domain,application,infrastructure,interfaces}`，实现 `Course`（课程码/名称/学期/教师）与 `Enrollment` 聚合及 CRUD/选课端点 | 是 |
 | **F17** | 问题关联课程与课程筛选/榜单（已预留） | `questions` 增可空 `course_id`（仅 ID 引用，零跨库外键强耦合）；`POST /questions`、`GET /questions?course_id=...` 及榜单支持按课程维度发布、筛选与统计 | 是 |
 | **F18** | 内容举报与管理员后台接口 | 新增 `reports` 表与举报提交 `POST /api/v1/reports`、管理员审核列表 `GET /api/v1/admin/reports` 及处理动作（驳回 / 软删除 / 关贴） | 是 |
 

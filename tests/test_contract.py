@@ -68,6 +68,11 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/notifications/{notification_id}/read",
         "/api/v1/notifications/read-all",
     ],
+    "courses": [
+        "/api/v1/courses",
+        "/api/v1/courses/{course_id}/enroll",
+        "/api/v1/courses/{course_id}/students",
+    ],
 }
 
 _METHODS = ("get", "post", "put", "patch", "delete")
@@ -115,8 +120,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 34, f"paths 数量漂移：期望 34，实际 {len(paths)}"
-        assert len(operations) == 40, f"operations 数量漂移：期望 40，实际 {len(operations)}"
+        assert len(paths) == 37, f"paths 数量漂移：期望 37，实际 {len(paths)}"
+        assert len(operations) == 44, f"operations 数量漂移：期望 44，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
@@ -195,3 +200,47 @@ class TestContractConventions:
         assert {"is_teacher_verified", "verified_by_name", "verified_at"} <= set(
             ans_props.keys()
         )
+
+    def test_f16_course_and_enrollment_schemas(self, schema: dict[str, Any]) -> None:
+        schemas = schema["components"]["schemas"]
+        create_req = schemas["CreateCourseRequest"]
+        assert create_req.get("additionalProperties") is False
+        assert {"code", "name", "semester"} <= set(create_req["properties"].keys())
+
+        course_props = schemas["CourseResponse"]["properties"]
+        assert {
+            "id",
+            "code",
+            "name",
+            "semester",
+            "teacher_id",
+            "teacher_name",
+            "created_at",
+        } <= set(course_props.keys())
+
+        enroll_props = schemas["EnrollmentResponse"]["properties"]
+        assert {
+            "id",
+            "course_id",
+            "student_id",
+            "student_name",
+            "enrolled_at",
+        } <= set(enroll_props.keys())
+
+        student_item_props = schemas["CourseStudentItem"]["properties"]
+        assert set(student_item_props.keys()) == {
+            "student_id",
+            "student_name",
+            "enrolled_at",
+        }
+        assert "email" not in student_item_props
+        assert "password_hash" not in student_item_props
+
+        for list_name in ("CourseListResponse", "CourseStudentListResponse"):
+            assert {
+                "items",
+                "total",
+                "page",
+                "page_size",
+                "total_pages",
+            } <= set(schemas[list_name]["properties"].keys())

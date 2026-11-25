@@ -7,6 +7,10 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 from app.config.settings import DEFAULT_EMAIL_VERIFY_HMAC_SECRET, get_settings
+from app.contexts.course.interfaces.api.error_mapping import (
+    register_course_error_handlers,
+)
+from app.contexts.course.interfaces.api.routes import router as course_router
 from app.contexts.discovery.interfaces.api.routes import (
     router as discovery_router,
 )
@@ -67,9 +71,11 @@ def create_app() -> FastAPI:
     # 领域错误 → HTTP 状态码：每上下文各自拥有映射表，此处只做组装
     register_identity_error_handlers(application)
     register_qa_error_handlers(application)
+    register_course_error_handlers(application)
     application.include_router(auth_router)
     application.include_router(users_router)
     application.include_router(admin_router)
+    application.include_router(course_router)
     application.include_router(qa_router)
     application.include_router(qa_answers_router)
     application.include_router(qa_tags_router)
