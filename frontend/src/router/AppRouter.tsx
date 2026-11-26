@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { isAdminPreview } from '../admin/mode'
 
@@ -11,6 +11,7 @@ const QuestionsPage = lazy(() => import('../pages/QuestionsPage').then(({ Questi
 const RegisterPage = lazy(() => import('../pages/RegisterPage').then(({ RegisterPage: component }) => ({ default: component })))
 const ReputationPage = lazy(() => import('../pages/ReputationPage').then(({ ReputationPage: component }) => ({ default: component })))
 const TagsPage = lazy(() => import('../pages/TagsPage').then(({ TagsPage: component }) => ({ default: component })))
+const CoursesPage = lazy(() => import('../pages/CoursesPage').then(({ CoursesPage: component }) => ({ default: component })))
 const ProfilePage = lazy(() => import('../pages/ProfilePage').then(({ ProfilePage: component }) => ({ default: component })))
 const AccountPage = lazy(() => import('../pages/AccountPage').then(({ AccountPage: component }) => ({ default: component })))
 const NotificationsPage = lazy(() => import('../pages/NotificationsPage').then(({ NotificationsPage: component }) => ({ default: component })))
@@ -22,6 +23,11 @@ const AdminPreviewPage = isAdminPreview
 
 function PageLoading() {
   return <div className="page-loading" role="status">正在加载页面...</div>
+}
+
+function QuestionDetailRoute() {
+  const { questionId } = useParams()
+  return <QuestionDetailPage key={questionId} />
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -40,6 +46,7 @@ export function AppRouter() {
             <Route index element={<Navigate to="/questions" replace />} />
             <Route path="/questions" element={<QuestionsPage />} />
             <Route path="/tags" element={<TagsPage />} />
+            <Route path="/courses" element={<CoursesPage />} />
             <Route path="/leaderboard" element={<LeaderboardPage />} />
             <Route path="/users/:userId" element={<ProfilePage />} />
             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
@@ -47,7 +54,7 @@ export function AppRouter() {
             <Route path="/admin" element={<ProtectedRoute><AdminEntryPage /></ProtectedRoute>} />
             {AdminPreviewPage && <Route path="/admin/preview" element={<AdminPreviewPage />} />}
             <Route path="/reputation" element={<ProtectedRoute><ReputationPage /></ProtectedRoute>} />
-            <Route path="/questions/:questionId" element={<QuestionDetailPage />} />
+            <Route path="/questions/:questionId" element={<QuestionDetailRoute />} />
             <Route
               path="/questions/new"
               element={

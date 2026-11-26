@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'teacher'
+export type UserRole = 'student' | 'teacher' | 'ta' | 'admin'
 
 export type TokenPair = {
   access_token: string
@@ -8,7 +8,7 @@ export type TokenPair = {
 }
 
 export type RegisterRequest = {
-  role: UserRole
+  role: 'student' | 'teacher'
   email: string
   password: string
   student_id?: string
@@ -38,6 +38,7 @@ export type CommentResponse = {
   body: string
   author_id: string
   author_name: string
+  parent_id?: string | null
   created_at: string
 }
 
@@ -49,7 +50,66 @@ export type AnswerResponse = {
   created_at: string
   votes: number
   is_accepted: boolean
+  is_teacher_verified?: boolean
+  verified_by_name?: string | null
+  verified_at?: string | null
   comments: CommentResponse[]
+}
+
+export type PageResponse<T> = {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export type AdminUserItem = AuthUserResponse & { display_name: string }
+
+export type CourseResponse = {
+  id: string
+  code: string
+  name: string
+  semester: string
+  teacher_id: string
+  teacher_name: string
+  created_at: string
+}
+
+export type CourseStudentItem = { student_id: string; student_name: string; enrolled_at: string }
+export type EnrollmentResponse = CourseStudentItem & { id: string; course_id: string }
+export type CourseLeaderboardEntry = {
+  user_id: string
+  display_name: string
+  rank: number
+  accepted_count: number
+  net_votes: number
+  answer_count: number
+}
+export type CourseLeaderboardResponse = {
+  course_id: string
+  course_code: string
+  course_name: string
+  entries: CourseLeaderboardEntry[]
+}
+
+export type ReportTarget = 'question' | 'answer'
+export type ReportStatus = 'pending' | 'resolved' | 'dismissed'
+export type ReportAction = 'dismiss' | 'close_question' | 'soft_delete'
+export type ReportResponse = {
+  id: string
+  reporter_id: string
+  reporter_name: string
+  target_type: ReportTarget
+  target_id: string
+  reason: string
+  status: ReportStatus
+  resolution_action: ReportAction | null
+  resolution_note: string | null
+  resolved_by: string | null
+  resolved_by_name: string | null
+  created_at: string
+  resolved_at: string | null
 }
 
 export type ReputationEntryResponse = {

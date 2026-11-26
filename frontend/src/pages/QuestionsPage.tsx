@@ -1,9 +1,10 @@
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { Button, Card, Empty, Input, List, Pagination, Select, Skeleton, Space, Tag, Typography } from 'antd'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuestions, useTags } from '../hooks/useQuestions'
 import type { QuestionSort, QuestionStatus } from '../api/questions'
+import { CourseSelect } from '../components/CourseSelect'
 
 function dateBoundary(value: string, end = false) {
   if (!value) return undefined
@@ -12,6 +13,8 @@ function dateBoundary(value: string, end = false) {
 
 export function QuestionsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const courseId = searchParams.get('course_id') || undefined
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<QuestionSort>('latest')
   const [search, setSearch] = useState('')
@@ -27,6 +30,7 @@ export function QuestionsPage() {
     q: search.trim() || undefined,
     tag: tags.length ? tags : undefined,
     status,
+    course_id: courseId,
     created_from: dateBoundary(createdFrom),
     created_to: dateBoundary(createdTo, true),
   })
@@ -38,6 +42,7 @@ export function QuestionsPage() {
     setCreatedFrom('')
     setCreatedTo('')
     setPage(1)
+    setSearchParams({})
   }
 
   return <div className="page-stack">
@@ -51,6 +56,7 @@ export function QuestionsPage() {
     </section>
     <Card size="small" bordered={false}>
       <Space wrap>
+        <CourseSelect label="按课程筛选" value={courseId} onChange={(value) => { setSearchParams(value ? { course_id: value } : {}); setPage(1) }} />
         <Input allowClear prefix={<SearchOutlined />} placeholder="搜索标题和正文" aria-label="搜索问题" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} />
         <Select mode="multiple" allowClear maxCount={5} maxTagCount="responsive" loading={tagsLoading} aria-label="按标签筛选" placeholder="按标签筛选" value={tags} options={tagOptions.map((tag) => ({ label: tag, value: tag }))} onChange={(value: string[]) => { setTags(value); setPage(1) }} />
         <Select allowClear aria-label="问题状态" placeholder="全部状态" value={status} options={[{ value: 'open', label: '开放' }, { value: 'closed', label: '已关闭' }]} onChange={(value: QuestionStatus | undefined) => { setStatus(value); setPage(1) }} />
@@ -62,21 +68,21 @@ export function QuestionsPage() {
     </Card>
     <div className="toolbar-row">
       <Typography.Text type="secondary">共 {data?.total ?? 0} 个问题</Typography.Text>
-      {search || tags.length || status || createdFrom || createdTo ? <Typography.Text type="secondary">筛选条件由服务端处理</Typography.Text> : null}
+      {search || tags.length || status || createdFrom || createdTo || courseId ? <Typography.Text type="secondary">筛选条件由服务端处理</Typography.Text> : null}
     </div>
     {isError ? <Empty description="暂时无法加载问题，请稍后再试" /> : isLoading ? (
       <List className="question-list" dataSource={[1, 2, 3]} renderItem={() => <List.Item><Skeleton active /></List.Item>} />
     ) : data?.items.length ? (
       <List className="question-list" itemLayout="vertical" dataSource={data.items} renderItem={(question) => (
         <List.Item key={question.id}>
-          <List.Item.Meta title={<Link className="question-title" to={`/questions/${question.id}`}>{question.title}</Link>} description={<Space wrap><Typography.Text type="secondary">作者：</Typography.Text><Link to={`/users/${question.author_id}`}>{question.author_name}</Link>{question.status === 'closed' ? <Tag>已关闭</Tag> : <Tag color="green">开放</Tag>}</Space>} />
+          <List.Item.Meta title={<Link className="question-title" to={`/questions/${question.id}`}>{question.title}</Link>} description={<Space wrap><Typography.Text type="secondary">作者：</Typography.Text><Link to={`/users/${question.author_id}`}>{question.author_name}</Link>{question.course_name ? <Tag color="purple">{question.course_name}</Tag> : null}{question.status === 'closed' ? <Tag>已关闭</Tag> : <Tag color="green">开放</Tag>}</Space>} />
           {question.tags.length ? <Space wrap className="tag-row">{question.tags.map((tag) => <Tag color="blue" key={tag}>{tag}</Tag>)}</Space> : null}
           <Typography.Text className="question-meta" type="secondary">发布时间：{new Date(question.created_at).toLocaleDateString('zh-CN')}</Typography.Text>
         </List.Item>
       )} />
     ) : (
       <Empty description="没有匹配的问题，请调整筛选条件">
-        {!search && !tags.length && !status && !createdFrom && !createdTo ? <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/questions/new')}>发布问题</Button> : null}
+        {!search && !tags.length && !status && !createdFrom && !createdTo && !courseId ? <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/questions/new')}>发布问题</Button> : null}
       </Empty>
     )}
     {data && data.total_pages > 1 ? <Pagination current={data.page} pageSize={data.page_size} total={data.total} showSizeChanger={false} onChange={(nextPage) => { setPage(nextPage); window.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : null}

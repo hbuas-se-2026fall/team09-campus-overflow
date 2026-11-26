@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
+})
+
 const serverUser = {
   id: 'user-1', email: 'student@example.com', role: 'student',
   student_id: '20260001', staff_id: null, created_at: '2026-10-01T00:00:00Z',
@@ -29,7 +33,7 @@ test('正式后台要求先登录', async ({ page }) => {
   await expect(page.getByLabel('学号 / 工号')).toBeVisible()
 })
 
-for (const persistedRole of ['student', 'teacher', 'admin']) {
+for (const persistedRole of ['student', 'teacher', 'ta', 'admin']) {
   test(`正式入口拒绝本地 ${persistedRole} 角色，并核验真实服务端身份`, async ({ page }) => {
     await saveSession(page, persistedRole)
     let identityRequests = 0
@@ -39,8 +43,7 @@ for (const persistedRole of ['student', 'teacher', 'admin']) {
       await route.fulfill({ json: serverUser })
     })
     await page.goto('/admin')
-    await expect(page.getByText('管理后台尚未开放', { exact: true })).toBeVisible()
-    await expect(page.getByText(/当前账号：student@example.com/)).toBeVisible()
+    await expect(page.getByText('仅管理员可访问管理后台', { exact: true })).toBeVisible()
     expect(identityRequests).toBeGreaterThan(0)
     await expect(page.getByRole('tab', { name: '用户管理' })).toHaveCount(0)
   })
@@ -56,7 +59,7 @@ test('身份核验失败可重试', async ({ page }) => {
   await expect(page.getByText('无法核验身份', { exact: true })).toBeVisible()
   fail = false
   await page.getByRole('button', { name: '重新核验' }).click()
-  await expect(page.getByText('管理后台尚未开放', { exact: true })).toBeVisible()
+  await expect(page.getByText('仅管理员可访问管理后台', { exact: true })).toBeVisible()
 })
 
 test('生产环境不暴露后台演示', async ({ page }, testInfo) => {

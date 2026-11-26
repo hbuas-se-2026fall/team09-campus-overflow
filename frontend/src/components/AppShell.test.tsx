@@ -3,8 +3,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const authMocks = vi.hoisted(() => ({ logout: vi.fn() }))
+const authMocks = vi.hoisted(() => ({ logout: vi.fn(), me: vi.fn() }))
 vi.mock('../api/auth', () => ({ authApi: authMocks }))
+vi.mock('../api/notifications', () => ({ notificationsApi: { unreadCount: vi.fn().mockResolvedValue({ count: 0 }) } }))
 
 import { AppShell } from './AppShell'
 import { useAuthStore } from '../stores/authStore'
@@ -39,6 +40,7 @@ describe('AppShell 组件', () => {
   beforeEach(() => {
     useAuthStore.getState().logout()
     vi.clearAllMocks()
+    authMocks.me.mockResolvedValue({ id: demoUser.id, email: demoUser.email, student_id: demoUser.studentId, staff_id: null, role: demoUser.role, created_at: demoUser.createdAt })
   })
 
   it('访客态只展示公共导航与登录入口', () => {

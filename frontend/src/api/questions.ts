@@ -12,6 +12,8 @@ export type QuestionListItem = {
   created_at: string
   tags: string[]
   status: QuestionStatus
+  course_id?: string | null
+  course_name?: string | null
 }
 
 export type QuestionListResponse = {
@@ -31,6 +33,8 @@ export type QuestionResponse = {
   created_at: string
   tags: string[]
   status: QuestionStatus
+  course_id?: string | null
+  course_name?: string | null
 }
 
 export type QuestionDetailResponse = QuestionResponse & {
@@ -55,6 +59,7 @@ export type QuestionListParams = {
   status?: QuestionStatus
   created_from?: string
   created_to?: string
+  course_id?: string
 }
 
 function normalizeAnswer(answer: AnswerResponse): AnswerResponse {
@@ -63,7 +68,7 @@ function normalizeAnswer(answer: AnswerResponse): AnswerResponse {
 
 export const questionsApi = {
   list(params?: QuestionListParams) {
-    return apiClient.get<QuestionListResponse>('/v1/questions', { params }).then(({ data }) => ({
+    return apiClient.get<QuestionListResponse>('/v1/questions', { params, paramsSerializer: { indexes: null } }).then(({ data }) => ({
       ...data,
       items: data.items.map((item) => ({ ...item, tags: item.tags ?? [] })),
     }))
@@ -77,14 +82,26 @@ export const questionsApi = {
       comments: data.comments ?? [],
     }))
   },
-  create(payload: { title: string; body: string; tags?: string[] }) {
+  create(payload: { title: string; body: string; tags?: string[]; course_id?: string | null }) {
     return apiClient.post<QuestionResponse>('/v1/questions', payload).then(({ data }) => ({ ...data, tags: data.tags ?? [] }))
   },
-  edit(questionId: string, payload: { title?: string; body?: string }) {
+  edit(questionId: string, payload: { title?: string; body?: string; course_id?: string | null }) {
     return apiClient.patch<QuestionResponse>(`/v1/questions/${questionId}`, payload).then(({ data }) => ({ ...data, tags: data.tags ?? [] }))
   },
   close(questionId: string) {
     return apiClient.post<void>(`/v1/questions/${questionId}/close`)
+  },
+  deleteQuestion(questionId: string) {
+    return apiClient.delete<void>(`/v1/questions/${questionId}`)
+  },
+  deleteAnswer(answerId: string) {
+    return apiClient.delete<void>(`/v1/answers/${answerId}`)
+  },
+  verifyAnswer(answerId: string) {
+    return apiClient.post<AnswerResponse>(`/v1/answers/${answerId}/verify`).then(({ data }) => normalizeAnswer(data))
+  },
+  unverifyAnswer(answerId: string) {
+    return apiClient.delete<void>(`/v1/answers/${answerId}/verify`)
   },
   postAnswer(questionId: string, payload: { body: string }) {
     return apiClient.post<AnswerResponse>(`/v1/questions/${questionId}/answers`, payload).then(({ data }) => normalizeAnswer(data))
@@ -98,10 +115,10 @@ export const questionsApi = {
   voteAnswer(questionId: string, answerId: string, direction: 'up' | 'down') {
     return apiClient.post<void>(`/v1/questions/${questionId}/answers/${answerId}/vote`, { direction })
   },
-  commentQuestion(questionId: string, payload: { body: string }) {
+  commentQuestion(questionId: string, payload: { body: string; parent_id?: string }) {
     return apiClient.post<CommentResponse>(`/v1/questions/${questionId}/comments`, payload).then(({ data }) => data)
   },
-  commentAnswer(answerId: string, payload: { body: string }) {
+  commentAnswer(answerId: string, payload: { body: string; parent_id?: string }) {
     return apiClient.post<CommentResponse>(`/v1/answers/${answerId}/comments`, payload).then(({ data }) => data)
   },
   acceptAnswer(answerId: string) {

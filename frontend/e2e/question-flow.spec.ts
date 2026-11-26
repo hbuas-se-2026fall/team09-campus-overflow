@@ -14,6 +14,7 @@ const question = {
   title: '如何为 React 项目设计登录状态？',
   body: '我希望在刷新后保留登录状态，并且能正确处理令牌过期。',
   author_id: user.id,
+  author_name: '测试学生',
   created_at: '2026-10-22T00:00:00Z',
   tags: ['React'],
   status: 'open',
@@ -40,6 +41,9 @@ test('用户可以登录、浏览问题并提交新问题', async ({ page }) => 
     await route.fulfill({ json: { items: [question], total: 1, page: 1, page_size: 10, total_pages: 1 } })
   })
 
+  await page.route('**/api/v1/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
+  await page.route('**/api/v1/questions/*/related?*', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/v1/questions/*/bounty', (route) => route.fulfill({ body: 'null', contentType: 'application/json' }))
   await page.goto('/login')
   await page.getByLabel('学号 / 工号').fill('20260001')
   await page.getByLabel('密码').fill('Passw0rd!')

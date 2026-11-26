@@ -39,4 +39,23 @@ describe('checked-in API contract', () => {
     expect(detail?.properties?.comments).toBeDefined()
     expect(answer?.required).toEqual(expect.arrayContaining(['id', 'body', 'author_id', 'votes', 'is_accepted']))
   })
+
+  it('supports the role, verification, course, reply and moderation contracts', () => {
+    const operations: [string, string][] = [
+      ['/api/v1/admin/users', 'get'], ['/api/v1/admin/users/{user_id}/role', 'patch'],
+      ['/api/v1/answers/{answer_id}/verify', 'post'], ['/api/v1/answers/{answer_id}/verify', 'delete'],
+      ['/api/v1/questions/{question_id}', 'delete'], ['/api/v1/answers/{answer_id}', 'delete'],
+      ['/api/v1/courses', 'get'], ['/api/v1/courses', 'post'], ['/api/v1/courses/{course_id}/enroll', 'post'],
+      ['/api/v1/courses/{course_id}/students', 'get'], ['/api/v1/courses/{course_id}/leaderboard', 'get'],
+      ['/api/v1/reports', 'post'], ['/api/v1/admin/reports', 'get'], ['/api/v1/admin/reports/{report_id}/resolve', 'post'],
+    ]
+    for (const [path, method] of operations) expect(document.paths[path]?.[method], `${method} ${path}`).toBeDefined()
+    const schemas = document.components?.schemas ?? {}
+    expect(schemas.AnswerResponse?.properties).toEqual(expect.objectContaining({ is_teacher_verified: expect.anything(), verified_by_name: expect.anything(), verified_at: expect.anything() }))
+    expect(schemas.CommentRequest?.properties?.parent_id).toBeDefined()
+    expect(schemas.CommentResponse?.properties?.parent_id).toBeDefined()
+    expect(schemas.QuestionResponse?.properties?.course_id).toBeDefined()
+    expect(schemas.AdminUserItem?.properties?.role).toMatchObject({ enum: ['student', 'teacher', 'ta', 'admin'] })
+    expect(schemas.RegisterRequest?.properties?.role).toMatchObject({ enum: ['student', 'teacher'] })
+  })
 })

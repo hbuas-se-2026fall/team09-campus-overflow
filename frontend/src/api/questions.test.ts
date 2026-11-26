@@ -4,6 +4,7 @@ const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   patch: vi.fn(),
+  delete: vi.fn(),
 }))
 
 vi.mock('./client', () => ({ apiClient: apiMocks }))
@@ -13,6 +14,39 @@ import { questionsApi } from './questions'
 describe('questionsApi', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('uses separate verification and soft-delete endpoints without changing acceptance', async () => {
+    apiMocks.post.mockResolvedValue({ data: { id: 'answer-id', is_teacher_verified: true, verified_by_name: '教师', verified_at: '2026-11-26T00:00:00Z' } })
+    apiMocks.delete.mockResolvedValue({ data: undefined })
+    await expect(questionsApi.verifyAnswer('answer-id')).resolves.toMatchObject({ is_teacher_verified: true, comments: [] })
+    await questionsApi.unverifyAnswer('answer-id')
+    await questionsApi.deleteAnswer('answer-id')
+    await questionsApi.deleteQuestion('question-id')
+    expect(apiMocks.post).toHaveBeenCalledWith('/v1/answers/answer-id/verify')
+    expect(apiMocks.delete.mock.calls.map(([url]) => url)).toEqual(['/v1/answers/answer-id/verify', '/v1/answers/answer-id', '/v1/questions/question-id'])
+  })
+
+  it('preserves reply parent, course unlink and answer verification data on edits', async () => {
+    apiMocks.post.mockResolvedValue({ data: { id: 'reply', parent_id: 'root' } })
+    await questionsApi.commentQuestion('question-id', { body: '回复', parent_id: 'root' })
+    await questionsApi.commentAnswer('answer-id', { body: '答评回复', parent_id: 'answer-root' })
+    apiMocks.patch.mockResolvedValue({ data: { id: 'question-id', course_id: null } })
+    await questionsApi.edit('question-id', { course_id: null })
+    apiMocks.patch.mockResolvedValue({ data: { id: 'answer-id', is_teacher_verified: true } })
+    await expect(questionsApi.editAnswer('answer-id', { body: '修改后的回答' })).resolves.toMatchObject({ is_teacher_verified: true, comments: [] })
+    expect(apiMocks.post).toHaveBeenCalledWith('/v1/questions/question-id/comments', { body: '回复', parent_id: 'root' })
+    expect(apiMocks.post).toHaveBeenCalledWith('/v1/answers/answer-id/comments', { body: '答评回复', parent_id: 'answer-root' })
+    expect(apiMocks.patch).toHaveBeenCalledWith('/v1/questions/question-id', { course_id: null })
+    expect(apiMocks.patch).toHaveBeenCalledWith('/v1/answers/answer-id', { body: '修改后的回答' })
+  })
+
+  it('loads related questions and distinguishes absent bounty from a created bounty', async () => {
+    apiMocks.get.mockResolvedValueOnce({ data: [{ id: 'related' }] }).mockResolvedValueOnce({ data: null })
+    apiMocks.post.mockResolvedValue({ data: { id: 'bounty', amount: 10 } })
+    await expect(questionsApi.related('question-id')).resolves.toEqual([{ id: 'related', tags: [] }])
+    await expect(questionsApi.getBounty('question-id')).resolves.toBeNull()
+    await expect(questionsApi.createBounty('question-id', 10)).resolves.toMatchObject({ amount: 10 })
   })
 
   it('requests the paginated question list with the contract path and params', async () => {
@@ -28,7 +62,7 @@ describe('questionsApi', () => {
       items: [{ id: 'question-id', tags: [], status: 'closed' }],
     })
 
-    expect(apiMocks.get).toHaveBeenCalledWith('/v1/questions', { params: { page: 2, page_size: 10, sort: 'votes' } })
+    expect(apiMocks.get).toHaveBeenCalledWith('/v1/questions', { params: { page: 2, page_size: 10, sort: 'votes' }, paramsSerializer: { indexes: null } })
   })
 
   it('posts only title and body when creating a question', async () => {

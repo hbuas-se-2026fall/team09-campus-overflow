@@ -6,6 +6,8 @@
 .brand-mark-large { width: 42px; height: 42px; margin-bottom: 14px; font-size: 23px; }
 .main-menu { flex: 1; min-width: 0; border-bottom: 0; background: transparent; }
 .header-actions { flex-shrink: 0; }
+.publish-link { display: inline-block; padding: 4px 10px; border-radius: 6px; background: #1677ff; color: white; line-height: 24px; white-space: nowrap; }
+.publish-link:hover { background: #4096ff; color: white; }
 .app-content { padding: 36px 24px 64px; }
 .content-container { width: min(100%, 980px); margin: 0 auto; }
 .app-footer { padding: 18px 24px; text-align: center; background: transparent; }
@@ -42,6 +44,8 @@
   .header-inner { flex-wrap: wrap; gap: 10px 16px; }
   .brand { flex: 1; }
   .main-menu { order: 3; width: 100%; }
+  .header-actions { flex-wrap: wrap; max-width: 100%; }
+  .header-actions .ant-tag { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
   .main-menu .ant-menu-item { padding-inline: 10px; }
   .app-content { padding: 24px 16px 48px; }
   .page-intro, .toolbar-row { align-items: stretch; flex-direction: column; }
@@ -50,3 +54,9 @@
   .question-list .ant-list-item { padding: 18px 16px; }
   .detail-card, .question-form-card { padding: 8px; }
 }
+
+.comment-body { margin-bottom: 4px !important; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-reply { margin: 8px 0 0 20px; padding: 8px 12px; border-left: 2px solid #d6e4ff; background: #fafcff; }
+.answer-content { min-width: 0; flex: 1; }
+.answer-verification { margin: 12px 0; }
+.comment-form { display: flex; width: 100%; margin-top: 12px; }

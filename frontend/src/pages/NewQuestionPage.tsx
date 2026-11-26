@@ -6,11 +6,13 @@ import { useNavigate } from 'react-router-dom'
 import { questionsApi, type QuestionDetail } from '../api/questions'
 import { useTags } from '../hooks/useQuestions'
 import { getApiErrorMessage } from '../api/errors'
+import { CourseSelect } from '../components/CourseSelect'
 
 type NewQuestionValues = {
   title: string
   body: string
   tags?: string[]
+  course_id?: string
 }
 
 export function NewQuestionPage() {
@@ -25,7 +27,7 @@ export function NewQuestionPage() {
     setErrorMessage(null)
     setIsSubmitting(true)
     try {
-      const question = await questionsApi.create({ title: values.title, body: values.body, tags: values.tags ?? [] })
+      const question = await questionsApi.create({ title: values.title, body: values.body, tags: values.tags ?? [], ...(values.course_id ? { course_id: values.course_id } : {}) })
       queryClient.invalidateQueries({ queryKey: ['questions'] })
       queryClient.setQueryData<QuestionDetail>(['questions', question.id], {
         ...question,
@@ -69,6 +71,7 @@ export function NewQuestionPage() {
               placeholder="例如：React、数据库"
             />
           </Form.Item>
+          <Form.Item label="关联课程" name="course_id" extra="学生需先在课程中心选课；留空表示社区问题。"><CourseSelect /></Form.Item>
           <Space>
             <Button onClick={() => navigate('/questions')}>取消</Button>
             <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={isSubmitting}>发布问题</Button>
