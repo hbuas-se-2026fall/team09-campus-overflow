@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.contexts.identity.domain.user import Role
 from app.shared.sentinel import UNSET, UnsetType
 
 
@@ -62,3 +63,12 @@ class ConfirmEmailVerificationCommand:
 
     user_id: UUID
     code: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateUserRoleCommand:
+    """管理员变更用户角色命令（F15）。"""
+
+    actor_id: UUID
+    target_user_id: UUID
+    new_role: Role

@@ -31,7 +31,7 @@ class UserModel(Base):
 
 
 class RoleModel(Base):
-    """roles 表：预置 student / teacher。"""
+    """roles 表：预置 student / teacher / ta / admin。"""
 
     __tablename__ = "roles"
 

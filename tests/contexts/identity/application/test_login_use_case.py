@@ -10,8 +10,12 @@ import pytest
 from app.contexts.identity.application.commands import LoginCommand
 from app.contexts.identity.application.login_use_case import LoginUseCase
 from app.contexts.identity.application.ports import REFRESH_TOKEN_TTL
-from app.contexts.identity.domain.errors import AccountLockedError, InvalidCredentialsError
-from app.contexts.identity.domain.user import User
+from app.contexts.identity.domain.errors import (
+    AccountLockedError,
+    InvalidCredentialsError,
+    UserNotFoundError,
+)
+from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.domain.value_objects import Email, PasswordHash, StaffId, StudentId
 
 
@@ -49,6 +53,25 @@ class FakeRepository:
 
     async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
         return next((u for u in self.users if u.id == user_id), None)
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        filtered = [u for u in self.users if role is None or u.role == role]
+        filtered.sort(key=lambda u: (u.created_at, u.id), reverse=True)
+        start = (page - 1) * page_size
+        return filtered[start : start + page_size], len(filtered)
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        user = next((u for u in self.users if u.id == user_id), None)
+        if user is None:
+            raise UserNotFoundError("用户不存在")
+        user.change_role(new_role)
+        return user
 
 
 class FakeHasher:

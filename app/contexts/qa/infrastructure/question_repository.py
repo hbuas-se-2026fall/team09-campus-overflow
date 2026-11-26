@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -8,9 +9,11 @@ from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.contexts.qa.domain.errors import (
+    AcceptedAnswerCannotDeleteError,
     AnswerAlreadyAcceptedError,
     QuestionAlreadyClosedError,
     QuestionClosedError,
+    QuestionNotFoundError,
 )
 from app.contexts.qa.domain.question import Question, QuestionStatus
 from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
@@ -50,16 +53,20 @@ def _rebuild_question(model: QuestionModel, tags: list[Tag]) -> Question:
         accepted_answer_id=model.accepted_answer_id,
         status=QuestionStatus(model.status),
         tags=tags,
+        deleted_at=model.deleted_at,
+        course_id=model.course_id,
     )
 
 
 def _apply_filters(
     stmt: Select[Any], filters: QuestionFilter | None
 ) -> Select[Any]:
-    """套用 F01 筛选谓词（COUNT 与当前页共用同一份条件，保证 total 同口径）。
+    """套用 F01 筛选谓词与 F13 软删除过滤（COUNT 与当前页共用同一份条件，保证 total 同口径）。
 
     多标签为 AND：去重后的每个 key 一个独立 EXISTS；同一 key 重复传参只算一次。
     """
+    # F13：必须放在 filters is None 早退之前，保证无筛选列表与 COUNT 均过滤已删问题
+    stmt = stmt.where(QuestionModel.deleted_at.is_(None))
     if filters is None:
         return stmt
     conditions: list[ColumnElement[bool]] = []
@@ -69,6 +76,8 @@ def _apply_filters(
         conditions.append(QuestionModel.created_at >= filters.created_from)
     if filters.created_to is not None:
         conditions.append(QuestionModel.created_at <= filters.created_to)
+    if filters.course_id is not None:
+        conditions.append(QuestionModel.course_id == filters.course_id)
     if filters.q is not None:
         # F02：标题 + 正文单条件 OR——同一行双命中仍只返回一次，不需要 DISTINCT；
         # 通配符经 escape_like 字面转义，escape 参数与转义符成对（"\\" 即单个反斜杠）
@@ -110,6 +119,7 @@ class SqlAlchemyQuestionRepository:
                 created_at=question.created_at,
                 accepted_answer_id=question.accepted_answer_id,
                 status=question.status.value,
+                course_id=question.course_id,
             )
         )
         await self._session.flush()
@@ -130,7 +140,8 @@ class SqlAlchemyQuestionRepository:
         """
         values: dict[str, Any]
         conditions: list[ColumnElement[bool]] = [
-            QuestionModel.status != QuestionStatus.CLOSED.value
+            QuestionModel.status != QuestionStatus.CLOSED.value,
+            QuestionModel.deleted_at.is_(None),
         ]
         if question.status is QuestionStatus.CLOSED:
             # 关闭动作只写状态列：不触碰 title/body/accepted，减少与在途编辑/采纳
@@ -143,6 +154,7 @@ class SqlAlchemyQuestionRepository:
                 "title": question.title.value,
                 "body": question.body.value,
                 "accepted_answer_id": question.accepted_answer_id,
+                "course_id": question.course_id,
             }
         stmt = (
             sql_update(QuestionModel)
@@ -155,18 +167,55 @@ class SqlAlchemyQuestionRepository:
             return
         latest = (
             await self._session.execute(
-                select(QuestionModel.status, QuestionModel.accepted_answer_id).where(
-                    QuestionModel.id == question.id
-                )
+                select(
+                    QuestionModel.status,
+                    QuestionModel.accepted_answer_id,
+                    QuestionModel.deleted_at,
+                ).where(QuestionModel.id == question.id)
             )
         ).first()
-        accepted = latest[1] if latest is not None else None
+        if latest is None or latest[2] is not None:
+            raise QuestionNotFoundError("问题不存在")
+        accepted = latest[1]
         if question.status is QuestionStatus.CLOSED:
             if accepted is not None:
                 raise AnswerAlreadyAcceptedError("该问题已有采纳答案，不可关闭（并发兜底）")
             raise QuestionAlreadyClosedError("问题已关闭（并发兜底）")
         # open 意图写入撞上已关闭行（编辑/采纳与关闭竞态）
         raise QuestionClosedError("已关闭的问题不可更新（并发兜底）")
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        """F13 条件软删除：未删且无采纳答案时写入 deleted_at（允许已关闭问题）。"""
+        stmt = (
+            sql_update(QuestionModel)
+            .where(
+                QuestionModel.id == question_id,
+                QuestionModel.deleted_at.is_(None),
+                QuestionModel.accepted_answer_id.is_(None),
+            )
+            .values(deleted_at=deleted_at)
+            .execution_options(synchronize_session=False)
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        if result.rowcount > 0:
+            return True
+        latest = (
+            await self._session.execute(
+                select(
+                    QuestionModel.deleted_at,
+                    QuestionModel.accepted_answer_id,
+                ).where(QuestionModel.id == question_id)
+            )
+        ).first()
+        if latest is None:
+            raise QuestionNotFoundError("问题不存在")
+        if latest[0] is not None:
+            return False
+        if latest[1] is not None:
+            raise AcceptedAnswerCannotDeleteError(
+                "该问题已有采纳答案，不可删除（并发兜底）"
+            )
+        return False
 
     async def _tags_for(self, question_ids: list[UUID]) -> dict[UUID, list[Tag]]:
         """批量装配问题标签（列表/详情共用；一次 JOIN 防 N+1）。
@@ -189,12 +238,20 @@ class SqlAlchemyQuestionRepository:
         return result
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
         stmt = select(QuestionModel).where(QuestionModel.id == question_id)
+        if not include_deleted:
+            stmt = stmt.where(QuestionModel.deleted_at.is_(None))
         if for_update:
-            # 写路径（悬赏/关闭/采纳）行锁串行化；populate_existing 避免读到同会话旧快照
-            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+            # 写路径（悬赏/关闭/采纳/编辑/软删除）行锁串行化
+            stmt = stmt.with_for_update()
+        # 始终刷新 identity map，避免同会话内 soft_delete/update 后回读旧快照
+        stmt = stmt.execution_options(populate_existing=True)
         model = (await self._session.execute(stmt)).scalar_one_or_none()
         if model is None:
             return None
@@ -213,7 +270,11 @@ class SqlAlchemyQuestionRepository:
                 await self._session.execute(
                     select(TagModel.key)
                     .join(QuestionTagModel, QuestionTagModel.tag_id == TagModel.id)
-                    .where(QuestionTagModel.question_id == question_id)
+                    .join(QuestionModel, QuestionModel.id == QuestionTagModel.question_id)
+                    .where(
+                        QuestionTagModel.question_id == question_id,
+                        QuestionModel.deleted_at.is_(None),
+                    )
                 )
             )
             .scalars()
@@ -229,6 +290,7 @@ class SqlAlchemyQuestionRepository:
             .where(
                 TagModel.key.in_(seed_keys),
                 QuestionModel.id != question_id,
+                QuestionModel.deleted_at.is_(None),
             )
             .group_by(QuestionModel.id)
             .order_by(

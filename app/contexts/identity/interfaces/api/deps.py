@@ -13,6 +13,7 @@ from app.contexts.identity.application.confirm_email_verification_use_case impor
 from app.contexts.identity.application.get_public_profile_use_case import (
     GetPublicUserProfileUseCase,
 )
+from app.contexts.identity.application.list_users_use_case import ListUsersUseCase
 from app.contexts.identity.application.login_use_case import LoginUseCase
 from app.contexts.identity.application.logout_use_case import LogoutUseCase
 from app.contexts.identity.application.ports import (
@@ -31,6 +32,7 @@ from app.contexts.identity.application.send_email_verification_use_case import (
     SendEmailVerificationUseCase,
 )
 from app.contexts.identity.application.update_profile_use_case import UpdateProfileUseCase
+from app.contexts.identity.application.update_user_role_use_case import UpdateUserRoleUseCase
 from app.contexts.identity.domain.repository import UserRepository
 from app.contexts.identity.domain.user import Role, User
 from app.contexts.identity.infrastructure.email_sender import build_verification_code_sender
@@ -139,6 +141,14 @@ def build_get_public_profile_use_case(
     return GetPublicUserProfileUseCase(reader)
 
 
+def build_list_users_use_case(users: UserRepository) -> ListUsersUseCase:
+    return ListUsersUseCase(users)
+
+
+def build_update_user_role_use_case(users: UserRepository) -> UpdateUserRoleUseCase:
+    return UpdateUserRoleUseCase(users)
+
+
 UserRepo = Annotated[UserRepository, Depends(get_user_repository)]
 UserSummaryReaderDep = Annotated[UserSummaryReader, Depends(get_user_summary_reader)]
 PublicUserProfileReaderDep = Annotated[
@@ -176,3 +186,7 @@ def require_roles(*roles: Role) -> Callable[..., Awaitable[User]]:
 # 公开供给面：下游上下文（如 qa）只经此别名消费当前用户，
 # 不直接 import identity.domain（context-map 边界规则 4 的 interfaces 层例外）
 CurrentUser = Annotated[User, Depends(get_current_user)]
+AdminUser = Annotated[User, Depends(require_roles("admin"))]
+AnswerVerifierUser = Annotated[
+    User, Depends(require_roles("teacher", "ta", "admin"))
+]

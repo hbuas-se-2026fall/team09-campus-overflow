@@ -32,10 +32,20 @@ class _FakeQuestionRepo:
         self._items[question.id] = question
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
         self.for_update_calls.append((question_id, for_update))
-        return self._items.get(question_id)
+        q = self._items.get(question_id)
+        if q is not None and (include_deleted or not q.is_deleted):
+            return q
+        return None
+
+    async def soft_delete(self, question_id: UUID, deleted_at: object) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         return []
@@ -67,8 +77,19 @@ class _FakeAnswerRepo:
         self.body_updated.append(answer)
         self._items[answer.id] = answer
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        return self._items.get(answer_id)
+    async def update_verification(self, answer: Answer) -> None:
+        self._items[answer.id] = answer
+
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        a = self._items.get(answer_id)
+        if a is not None and (include_deleted or not a.is_deleted):
+            return a
+        return None
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: object) -> bool:
+        return False
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
         return [a for a in self._items.values() if a.question_id == question_id]
@@ -152,5 +173,32 @@ async def test_edit_answer_invalid_body_raises_422(bad_body: str) -> None:
     with pytest.raises(DomainValidationError):
         await EditAnswerUseCase(_FakeQuestionRepo([question]), a_repo).execute(
             EditAnswerCommand(answer_id=answer.id, actor_id=author_id, body=bad_body)
+        )
+    assert a_repo.body_updated == []
+
+
+async def test_edit_answer_deleted_before_parent_lock_raises_404() -> None:
+    """F13 D4：锁父问题后重读 Answer，若期间回答已被软删除则抛 AnswerNotFoundError（404）。"""
+    author_id = uuid4()
+    question = Question.ask(title_value="问题", body_value="正文", author_id=uuid4())
+    answer = Answer.post(question_id=question.id, author_id=author_id, body_value="原回答")
+    q_repo = _FakeQuestionRepo([question])
+    a_repo = _FakeAnswerRepo([answer])
+
+    orig_q_get = q_repo.get_by_id
+
+    async def _delete_answer_during_lock(
+        question_id: UUID, *, for_update: bool = False, include_deleted: bool = False
+    ) -> Question | None:
+        answer.soft_delete()
+        return await orig_q_get(
+            question_id, for_update=for_update, include_deleted=include_deleted
+        )
+
+    q_repo.get_by_id = _delete_answer_during_lock  # type: ignore[method-assign]
+
+    with pytest.raises(AnswerNotFoundError):
+        await EditAnswerUseCase(q_repo, a_repo).execute(
+            EditAnswerCommand(answer_id=answer.id, actor_id=author_id, body="新正文")
         )
     assert a_repo.body_updated == []

@@ -1,5 +1,7 @@
 """RegisterUseCase 单元测试：fake 仓储 + fake 哈希器，不连库。"""
 
+from uuid import UUID
+
 import pytest
 
 from app.contexts.identity.application.commands import RegisterCommand
@@ -8,9 +10,11 @@ from app.contexts.identity.domain.errors import (
     EmailAlreadyExistsError,
     IdentityAlreadyExistsError,
     IdentityRequiredError,
+    UnknownRoleError,
+    UserNotFoundError,
     WeakPasswordError,
 )
-from app.contexts.identity.domain.user import User
+from app.contexts.identity.domain.user import Role, User
 
 
 class FakeRepository:
@@ -38,6 +42,28 @@ class FakeRepository:
 
     async def add(self, user: User) -> None:
         self.saved.append(user)
+
+    async def get_by_id(self, user_id: UUID, *, for_update: bool = False) -> User | None:
+        return next((u for u in self.saved if u.id == user_id), None)
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        role: Role | None = None,
+    ) -> tuple[list[User], int]:
+        filtered = [u for u in self.saved if role is None or u.role == role]
+        filtered.sort(key=lambda u: (u.created_at, u.id), reverse=True)
+        start = (page - 1) * page_size
+        return filtered[start : start + page_size], len(filtered)
+
+    async def update_role(self, user_id: UUID, new_role: Role) -> User:
+        user = await self.get_by_id(user_id)
+        if user is None:
+            raise UserNotFoundError("用户不存在")
+        user.change_role(new_role)
+        return user
 
 
 class FakeHasher:
@@ -138,6 +164,21 @@ async def test_invalid_student_id_format_rejected() -> None:
         await use_case.execute(
             RegisterCommand(
                 role="student", email="a@stu.edu.cn", password="Passw0rd8", student_id="abc!!!"
+            )
+        )
+    assert repo.saved == []
+
+
+@pytest.mark.parametrize("privileged_role", ["ta", "admin"])
+async def test_register_rejects_ta_and_admin_roles(privileged_role: str) -> None:
+    use_case, repo = _use_case()
+    with pytest.raises(UnknownRoleError):
+        await use_case.execute(
+            RegisterCommand(
+                role=privileged_role,
+                email="priv@campus.edu.cn",
+                password="Passw0rd8",
+                staff_id="T10086",
             )
         )
     assert repo.saved == []

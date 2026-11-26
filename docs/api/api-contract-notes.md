@@ -20,12 +20,12 @@
 | 状态码 | `detail` 形态 | 来源 | 前端处理 |
 |:--|:--|:--|:--|
 | 422 | **数组** `[{type, loc, msg}]`（不回显 input） | Pydantic 校验（含 extra=forbid、tags 类型/结构/原始数量 >20） | 逐项展示 msg。⚠️ schema 声明的 `input`/`ctx` 是 FastAPI 内置 ValidationError 模型残留，**实际响应永不含这两个键**，请以 type/loc/msg 为准 |
-| 422 | **字符串**（中文业务语义，如"至多 5 个标签…""标签含不支持的字符…"） | 领域值对象校验（Title/Body/Tag 与标签去重后 ≤5 上限） | 直接展示该句。**tags 两种 422 形态都要处理**：类型/结构错=数组形，语义违规=字符串形 |
+| 422 | **字符串**（中文业务语义，如"至多 5 个标签…""标签含不支持的字符…""父评论不属于当前对象""评论仅支持二级回复，不可回复二级评论""仅问题类型举报支持关闭问题动作"） | 领域值对象与实体不变式校验（Title/Body/Tag/ReportReason/ResolutionNote、标签去重上限、F14 评论二级回复归属与层级、F18 举报处置动作限制） | 直接展示该句。**tags 两种 422 形态都要处理**：类型/结构错=数组形，语义违规=字符串形 |
 | 401 | 字符串（如"令牌无效或已过期"） | Bearer 依赖层 | 跳登录页 |
 | 400 | 字符串（如"请求数据无法被数据库接受…""验证码无效或已过期"） | 数据库兜底 / 邮箱验证码校验失败（错码/过期/超 5 次） | 提示检查输入或重发验证码 |
 | 413 | 字符串"request body too large" | 1 MiB body 上限中间件 | 提示内容过大 |
-| 404 | 字符串（如"问题不存在"） | 业务语义 | 展示空态 |
-| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送 | 展示提示；**勿自动重试** |
+| 404 | 字符串（如"问题不存在""回答不存在""评论不存在""用户不存在""课程不存在""举报不存在"） | 业务语义 | 展示空态 |
+| 409 | 字符串（如"已对该对象投过票"…/"该问题已有采纳答案"/"问题已关闭"/"已关闭的问题不可编辑"/"邮箱已完成验证"/"该问题已有采纳答案，不可删除"/"已采纳的回答不可删除"/"不可修改本人角色"/"课程编号已存在"/"已选修该课程，请勿重复选课"/"您已举报过该内容，请等待管理员处理"/"该举报已被处理"） | 业务冲突：重复投票/改票、重复采纳、已关闭问题全冻结、邮箱已验证再发送、删除已采纳问题或回答、不可修改本人角色、重复课程编号、重复选课、重复提交待处理举报、重复处理已完结举报 | 展示提示；**勿自动重试** |
 | 423 | 字符串"尝试次数过多，账号临时锁定，请稍后再试" | 登录失败超限（US-L04：5 次/15 分钟窗口，成功登录即清零） | 提示稍后再试；**勿自动重试** |
 | 429 | 字符串（如"发送过于频繁，请 60 秒后再试"） | 邮箱验证码发送冷却（F10：60s 冷却） | 展示倒计时，勿自动重试 |
 | 405 | 标准 Method Not Allowed | 方法面 | —（请求方式写错才会遇到） |
@@ -84,7 +84,7 @@
 ## 四点九、用户徽章（`GET /api/v1/users/{id}/badges`，F06）
 
 - **公开**，无需登录；用户不存在 → **404**（detail `"用户不存在"`）
-- 实时计算，不物化；响应含 `answer_count`、`accepted_count`、`acceptance_rate`、`longest_streak_days`、`badges[]`
+- 实时计算，不物化；响应含 `answer_count`、`accepted_count`、`acceptance_rate`、`longest_streak_days`、`badges[]`（F13 起全量剔除已软删除问题/回答及挂在已删宿主上的评论与投票，历史连续活跃天数可随之下降）
 - 徽章族与阈值：
   - 回答数：5 / 20 / 50（铜/银/金）
   - 采纳率：回答数 ≥5 才评估，50% / 70% / 90%
@@ -99,8 +99,8 @@
 - `GET /unread-count`：`{count}`
 - `POST /{id}/read`：幂等 **204**；非本人/不存在 → **404**（不泄露存在性）
 - `POST /read-all`：`{updated}`（本次由未读转为已读的条数，幂等）
-- 通知类型：`answer_posted` / `answer_accepted` / `comment_created`；自己操作自己的内容不产生通知
-- 每条通知含可选 `question_id`（新写入的通知无论目标为问题还是回答均带所属 `question_id`，存量历史通知可能为 `null`）
+- 通知类型：`answer_posted` / `answer_accepted` / `answer_verified`（F15）/ `comment_created` / `comment_replied`（F14）；`target_type` 支持 `question` / `answer` / `comment`（F14）；自己操作自己的内容不产生通知
+- 每条通知含可选 `question_id`（新写入的通知无论目标为问题、回答还是评论均带所属 `question_id`，存量历史通知可能为 `null`）
 - 同事件对同一收件人只落一条（库级唯一键），重复触发不会重复插入
 
 ## 四点十一、教师悬赏（`/api/v1/questions/{id}/bounty`）与个人积分（`/api/v1/users/me/points`，F07）
@@ -110,7 +110,7 @@
   - 成功 201，返回 `{id,question_id,teacher_id,amount,status:"open",created_at,settled_at:null}`
 - `GET /api/v1/questions/{id}/bounty`：公开；返回进行中悬赏，无悬赏 → `200 null`；问题不存在 → 404
 - `GET /api/v1/users/me/points`：需登录（401）；返回 `{balance, entries: [{source, event_id, delta, reason, occurred_at}]}`；教师首次访问惰性开户并发放 100 初始分，学生只读既有余额与流水
-- 资金流：发起时冻结积分；采纳时结算给答主；关闭且未采纳时全额退款（各只发生一次）
+- 资金流：发起时冻结积分；采纳时结算给答主；关闭或软删除且未采纳时全额退款（各只发生一次）
 - 积分与声誉分离；教师初始额度 100 分，首版无充值/发放端点
 
 ## 四点十二、校园资料更新与邮箱验证（F10）
@@ -122,7 +122,7 @@
 
 ## 四点十三、公开展示名与个人主页（F11）
 
-- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `学生#<8位hex>`、`教师#<8位hex>` 或通用 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
+- **展示名规则**：优先显示清洗后的 `nickname`；未设置昵称时按角色回退为 `管理员#<8位hex>`、`教师#<8位hex>`、`助教#<8位hex>`、`学生#<8位hex>`，未知角色回退 `用户#<8位hex>`（绝不暴露学号/工号/邮箱）；极端孤立缺失引用安全回退 `"未知用户"`。
 - **增量回填字段**：
   - 问答与评论（`QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse`、`AnswerResponse`、`CommentResponse`）均增量返回 `author_name`；
   - 排行榜条目（`LeaderboardEntryResponse`）增量返回 `display_name`（即使命中 60s 榜单缓存，展示名仍实时查询回填）；
@@ -134,7 +134,91 @@
 - 需登录（401）；**仅回答者本人**可编辑（非作者含提问者均 **403** `"仅回答者可编辑回答"`）。
 - 请求体：`{"body": "1~5000字"}`（`extra=forbid`、`str_strip_whitespace=True`，纯空白/控制字符 → 422）。
 - 回答不存在 → **404**；所属问题已关闭 → **409**；**已采纳回答**（所属问题必为 `open` 态）仍允许回答者本人编辑且保持 `is_accepted=true`。
-- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入）。
+- 成功返回 **200 + `AnswerResponse`**，包含最新净票数 `votes`、`author_name`、`is_teacher_verified`、`verified_by_name`、`verified_at` 与完整有序 `comments[]`（含每条评论作者的 `author_name`）。注：`votes` 与 `is_accepted` 为本次读取时快照，同瞬间并发投票或采纳时响应可能短暂滞后于库内最新状态（不影响正文写入），既有教师认证状态随正文编辑保留。
+
+## 四点十五、软删除问题与回答（`DELETE /api/v1/questions/{question_id}`、`DELETE /api/v1/answers/{answer_id}`，F13）
+
+- **认证与鉴权**：均需登录（401）；活跃内容下**鉴权 403 优先于业务冲突 409**（非提问者删问题 → **403** `"仅提问者可删除问题"`；非回答者删回答 → **403** `"仅回答者可删除回答"`）。
+- **重复删除幂等与防泄露矩阵**：
+  - `DELETE /api/v1/questions/{question_id}`：提问者首次删除 **204**；提问者重复删除仍 **204**（幂等，不重复退悬赏）；非作者对已删或不存在问题一律 **404**；已有采纳答案的问题不可删除 → **409** `"该问题已有采纳答案，不可删除"`；已关闭问题允许提问者删除（内容回收例外）。
+  - `DELETE /api/v1/answers/{answer_id}`：回答者首次删除 **204**；父问题仍活跃时回答者重复删除仍 **204**；已采纳回答不可删除 → **409** `"已采纳的回答不可删除"`；已关闭问题下的未采纳回答允许回答者删除；非作者对已删回答、或**父问题已删时任意用户**均返回 **404**（绝不返回 403）。
+- **悬赏联动**：软删除含未采纳开放悬赏的问题时，同事务全额退还冻结积分给发起教师（`bounty_refund`），重复删除不二次退款。
+- **全链路可见性**：软删除后，对应问题/回答立即从列表（含无参/筛选/搜索/`total`）、详情、相关推荐、悬赏查询及徽章活跃统计中剔除，对其发起编辑/关闭/回答/投票/评论/采纳/悬赏一律返回 **404**。历史声誉流水、排行榜与站内通知不回滚/不回删（点击已删内容通知跳转 404）。
+
+## 四点十六、评论二级回复（`POST /api/v1/questions/{id}/comments`、`POST /api/v1/answers/{id}/comments`，F14）
+
+- **请求体（`CommentRequest`）**：`{"body": "1~5000字", "parent_id": "<uuid|null>"}`（保留 `extra=forbid`；`parent_id` 可缺省或 `null`，表示一级评论）。
+- **响应形态（平铺，向后兼容）**：`CommentResponse` 增量返回可空 `parent_id: UUID | null`；`GET /api/v1/questions/{id}` 详情的 `comments[]` / `answers[].comments[]` 与 `PATCH /api/v1/answers/{id}` 的 `comments[]` 保持按 `created_at ASC, id ASC` **平铺有序返回**，由前端按 `parent_id` 分组展示二级缩进。
+- **层级与校验口径**：
+  - 严格两级树：允许回复同一宿主（问题或回答）下的一级评论（含回复自己的一级评论）；
+  - 父评论不存在 → **404**（`detail: "评论不存在"`）；
+  - 父评论的 `(target_type, target_id)` 与当前对象不一致（跨问题/跨回答/跨题答类型）→ **422**（`detail: "父评论不属于当前对象"`）；
+  - 父评论自身已有 `parent_id`（试图发三级回复）→ **422**（`detail: "评论仅支持二级回复，不可回复二级评论"`）；
+  - 所属问题已关闭 → **409**；所属问题或回答已软删除 → **404**（一二级评论随宿主软删除一同隐藏）。
+- **通知联动（同事务写入，自操作均跳过）**：
+  - 一级评论：沿用原有行为，向宿主作者发 `comment_created`；
+  - 二级回复：① 若父评论作者 ≠ 回复者，向父评论作者发 `comment_replied`（`target_type="comment"`, `target_id=parent_comment.id`, `question_id=所属问题ID`）；② 若宿主作者 ≠ 回复者 且 宿主作者 ≠ 父评论作者，向宿主作者发 `comment_created`（同人去重只发 1 条 `comment_replied`）。
+
+## 四点十七、RBAC 扩展与教师认证回答（F15）
+
+- **角色与实时鉴权边界**：
+  - 角色支持 `student` / `teacher` / `ta` / `admin`；
+  - `POST /api/v1/auth/register` 保持**仅允许 `"student"` 与 `"teacher"`**，传 `"ta"` / `"admin"` 一律返回 **422**；
+  - 受保护端点鉴权基于每次请求从 DB 实时读取的 `User.role`：管理员变更目标用户角色后，其既有 Access Token 在下次请求即按新角色生效/失效；
+  - 角色变更保留原 `students.student_id` / `teachers.staff_id`，用户仍可用原学号/工号登录；
+  - F07 教师悬赏 `POST /api/v1/questions/{id}/bounty` 保持**仅 `"teacher"`** 可发起（`student` / `ta` / `admin` 均返回 **403**）。
+- **管理员用户管理（`require_roles("admin")`，未登录 401，非 `admin` 403）**：
+  - `GET /api/v1/admin/users`：Query `page >= 1`（默认 1）、`page_size` 1~100（默认 20）、`role` 可选（`student`/`teacher`/`ta`/`admin`），按 `created_at DESC, id DESC` 排序；响应 `{items, total, page, page_size, total_pages}`，`AdminUserItem` 包含 `{id, role, email, student_id, staff_id, display_name, nickname, college, class_name, email_verified, created_at}`（绝不含 `password_hash`）；
+  - `PATCH /api/v1/admin/users/{user_id}/role`：请求体 `{"role": "student"|"teacher"|"ta"|"admin"}`（`extra=forbid`）；不可修改本人角色 → **409**（`detail: "不可修改本人角色"`）；目标用户不存在 → **404**（`detail: "用户不存在"`）；幂等变更到同角色返回 **200 + `AdminUserItem`**。
+- **教师/助教/管理员认证回答（`require_roles("teacher", "ta", "admin")`，未登录 401，学生 403）**：
+  - `POST /api/v1/answers/{answer_id}/verify`：首次认证或幂等重复认证均返回 **200 + `AnswerResponse`**（包含真实 `votes`、`author_name`、`is_accepted`、`is_teacher_verified=true`、`verified_by_name`、`verified_at`、有序 `comments[]`）；重复认证保持首次认证人与认证时间不变；
+  - `DELETE /api/v1/answers/{answer_id}/verify`：取消认证返回 **204**（未认证时同样幂等返回 **204**）；
+  - 状态守卫：回答已软删或所属问题已软删 → **404**；所属问题已关闭 → **409**；
+  - `AnswerResponse`（`GET /questions/{id}`、`POST /questions/{id}/answers`、`PATCH /answers/{id}`、`POST /answers/{id}/verify` 共用）：增量暴露 `is_teacher_verified`（默认 `false`）、`verified_by_name`（默认 `null`）、`verified_at`（默认 `null`）；
+  - 通知与声誉联动：仅在首次变为已认证且 `answer.author_id != actor_id` 时同事务向答主写入 `answer_verified` 通知（`target_type="answer"`, `target_id=answer.id`, `question_id=question.id`）；重复认证、自操作、取消认证均不发通知；**不触发声誉变动**。
+
+## 四点十八、课程上下文与选课（F16）
+
+- **`GET /api/v1/courses`（公开，无需登录）**：
+  - 分页 Query：`page >= 1`（默认 1）、`page_size` 1~100（默认 20）、可选 `semester`（空白串视为无筛选，非空须 2–32 字符且不含 `\t`/`\n`/`\r` 或控制字符，否则 **422**）。
+  - 排序固定 `(created_at DESC, id DESC)`；`total` 与列表同口径；`total_pages = ceil(total / page_size)`（空库为 0）；批量回填 `teacher_name`。
+- **`POST /api/v1/courses`（`require_roles("teacher", "admin")`，未登录 401，`student`/`ta` 403）**：
+  - 请求体 `CreateCourseRequest`（`extra="forbid"`、`str_strip_whitespace=True`）：`code`（2–32 位，单源 `strip().upper()`，须符合 `^[A-Z0-9][A-Z0-9_-]{1,31}$`，如 `cs-se-301` 归一为 `CS-SE-301`）、`name`（2–100 字单行文本）、`semester`（2–32 字单行文本）。
+  - 课程编号已存在（含大小写变体）→ **409**（`detail: "课程编号已存在"`）；成功返回 **201 + `CourseResponse`**。
+- **`POST /api/v1/courses/{course_id}/enroll`（`require_roles("student")`，未登录 401，`teacher`/`ta`/`admin` 403）**：
+  - 课程不存在 → **404**（`detail: "课程不存在"`）；重复选课 → **409**（`detail: "已选修该课程，请勿重复选课"`）；成功返回 **201 + `EnrollmentResponse`**。
+- **`GET /api/v1/courses/{course_id}/students`（`require_roles("teacher", "ta", "admin")`，未登录 401，`student` 403）**：
+  - 课程不存在 → **404**；按 `(enrolled_at ASC, id ASC)` 分页返回 `{items, total, page, page_size, total_pages}`。
+  - `CourseStudentItem` 最小披露仅返回 `{student_id, student_name, enrolled_at}`（绝不暴露 `email`、学工号或密码哈希），`student_name` 随 F11 实时回填。
+
+## 四点十九、问题关联课程与课程榜单（F17）
+
+- **发问与编辑课程关联（`POST /api/v1/questions`、`PATCH /api/v1/questions/{question_id}`）**：
+  - `AskQuestionRequest` 新增可选 `course_id: UUID | null`（不传或 `null` 时向后兼容，不关联课程）；
+  - `EditQuestionRequest` 新增可选 `course_id: UUID | null`（允许仅传 `{"course_id": null}` 解绑课程；空 `{}` → **422**；不传 `course_id` 保留原有绑定；已关闭问题仍 **409**）；
+  - 准入规则：课程不存在 → **404**（`detail: "课程不存在"`）；**学生**关联/改绑课程必须已选修该课程，未选修 → **403**（`detail: "仅已选修该课程的学生可在该课程下提问"`）；**教师 / 助教 / 管理员**允许跨课程关联（仅要求课程存在）。
+- **课程筛选与字段回填**：
+  - `GET /api/v1/questions` 新增可选 Query `course_id: UUID | null`，可与 `tag`、`status`、`q`、`created_from`/`created_to`、`sort` 及分页自由组合，`total` 与列表同口径；
+  - `QuestionResponse`、`QuestionListItem`、`QuestionDetailResponse` 均增量暴露 `course_id` 与 `course_name`（无课程题两者均为 `null`）。
+- **课程贡献排行榜（`GET /api/v1/courses/{course_id}/leaderboard`）**：
+  - **公开**，无需登录；`limit` 1~50（默认 20，越界 **422**）；课程不存在 → **404**；空课程返回 `200` + `entries: []`；
+  - 统计口径：仅基于该课程下未软删除问题关联的未软删除回答聚合 `accepted_count`、`net_votes`、`answer_count`，按 `(accepted_count DESC, net_votes DESC, answer_count DESC, author_id ASC)` 排序，`rank` 使用同分同名次（`RANK()` 按 `accepted_count DESC, net_votes DESC`），实时回填 F11 `display_name`；**与 `reputation_ledgers` 及全站排行榜完全独立**。
+
+## 四点二十、内容举报与管理员后台（F18）
+
+- **`POST /api/v1/reports`（任何已认证用户 `student`/`teacher`/`ta`/`admin`，未登录 401）**：
+  - 请求体 `CreateReportRequest`（`extra="forbid"`）：`target_type` 严格限定 `"question"` / `"answer"`（传 `"comment"` 或其它值直接 **422**），`target_id: UUID`，`reason`（5–500 安全文本，拒控制字符与 lone surrogate）。
+  - 校验目标存在且未软删除（否则 **404** `"问题不存在"` / `"回答不存在"`）；同一举报人对同一待处理对象重复提交返回 **409**（`detail: "您已举报过该内容，请等待管理员处理"`）。管理员驳回或处理完结后允许再次提交。成功返回 **201 + `ReportResponse`**。
+- **`GET /api/v1/admin/reports`（仅 `admin` 可访问，未登录 401，`student`/`teacher`/`ta` 403）**：
+  - Query：`status`（默认 `"pending"`，支持 `"pending"` / `"resolved"` / `"dismissed"` / `"all"`）、`target_type`（可选 `"question"` / `"answer"`）、`page >= 1`（默认 1）、`page_size` 1~100（默认 20）。
+  - 按 `(created_at DESC, id DESC)` 分页返回 `{items, total, page, page_size, total_pages}`，批量 `IN` 去重回填 `reporter_name` 与 `resolved_by_name`。
+- **`POST /api/v1/admin/reports/{report_id}/resolve`（仅 `admin` 可访问，未登录 401，非 `admin` 403）**：
+  - 请求体 `ResolveReportRequest`（`extra="forbid"`）：`action`（`"dismiss"` / `"close_question"` / `"soft_delete"`）、可选 `note`（1–500 安全文本，空白等价 `null`）。
+  - 举报不存在 → **404**（`detail: "举报不存在"`）；非 `pending`（含并发已被其他管理员处置）→ **409**（`detail: "该举报已被处理"`）。
+  - **3×2 处置矩阵**：
+    - `dismiss`（问题 / 回答）：流转为 `"dismissed"`，不改动原内容（目标已删亦可驳回）；
+    - `close_question`（仅问题）：关闭开放且无采纳答案的问题并退还开放悬赏，流转为 `"resolved"`；问题已关闭或已有采纳答案 → **409**（保持 `pending`）；作用于回答 → **422**（`detail: "仅问题类型举报支持关闭问题动作"`）；
+    - `soft_delete`（问题 / 回答）：软删除未采纳的问题（同时退还开放悬赏）或回答，流转为 `"resolved"`；目标已有采纳关系或自身已采纳 → **409**；目标已不存在/已软删 → **404**（上述失败均整事务回滚，举报维持 `pending`）。
 
 ## 五、开发期调试入口
 

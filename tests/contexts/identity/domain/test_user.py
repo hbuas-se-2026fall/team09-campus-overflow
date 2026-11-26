@@ -4,7 +4,11 @@ from uuid import UUID
 
 import pytest
 
-from app.contexts.identity.domain.errors import IdentityRequiredError, WeakPasswordError
+from app.contexts.identity.domain.errors import (
+    IdentityRequiredError,
+    UnknownRoleError,
+    WeakPasswordError,
+)
 from app.contexts.identity.domain.user import (
     User,
     normalize_public_nickname,
@@ -176,8 +180,9 @@ class TestDisplayName:
         uid = UUID("a1b2c3d4-0000-0000-0000-000000000000")
         assert resolve_display_name("student", uid, blank) == "学生#a1b2c3d4"
         assert resolve_display_name("teacher", uid, blank) == "教师#a1b2c3d4"
-        assert resolve_display_name("ta", uid, blank) == "用户#a1b2c3d4"
-        assert resolve_display_name("admin", uid, blank) == "用户#a1b2c3d4"
+        assert resolve_display_name("ta", uid, blank) == "助教#a1b2c3d4"
+        assert resolve_display_name("admin", uid, blank) == "管理员#a1b2c3d4"
+        assert resolve_display_name("guest", uid, blank) == "用户#a1b2c3d4"
 
     def test_user_display_name_property_uses_nickname_or_fallback(self) -> None:
         student = User.register(
@@ -201,3 +206,36 @@ class TestDisplayName:
         )
         assert teacher.display_name == f"教师#{teacher.id.hex[:8]}"
         assert "T10086" not in teacher.display_name
+
+
+class TestRbacRoleExtension:
+    @pytest.mark.parametrize("disallowed", ["ta", "admin"])
+    def test_self_register_rejects_privileged_roles(self, disallowed: str) -> None:
+        with pytest.raises(UnknownRoleError):
+            User.register(
+                role=disallowed,  # type: ignore[arg-type]
+                email_value="priv@campus.edu.cn",
+                password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+                identity_value="T10086",
+            )
+
+    def test_change_role_updates_role_and_preserves_identity_handles(self) -> None:
+        student = User.register(
+            role="student",
+            email_value="stu@campus.edu.cn",
+            password_hash_value="$2b$12$abcdefghijklmnopqrstuv",
+            identity_value="2025010101",
+        )
+        student.change_role("ta")
+        assert student.role == "ta"
+        assert student.student_id is not None and student.student_id.value == "2025010101"
+        assert student.staff_id is None
+        assert student.display_name == f"助教#{student.id.hex[:8]}"
+
+        student.change_role("admin")
+        assert student.role == "admin"
+        assert student.student_id is not None and student.student_id.value == "2025010101"
+        assert student.display_name == f"管理员#{student.id.hex[:8]}"
+
+        with pytest.raises(UnknownRoleError):
+            student.change_role("superadmin")  # type: ignore[arg-type]

@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.contexts.qa.domain.comment import CommentTarget
+from app.contexts.qa.domain.report import ReportAction, ReportTargetType
 from app.contexts.qa.domain.vote import VoteDirection, VoteTarget
+from app.shared.sentinel import UNSET, UnsetType
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +20,8 @@ class AskQuestionCommand:
     body: str
     author_id: UUID
     tags: tuple[str, ...] = ()
+    course_id: UUID | None = None
+    actor_role: str = "student"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,12 +56,13 @@ class AcceptAnswerCommand:
 
 @dataclass(frozen=True, slots=True)
 class CreateCommentCommand:
-    """评论用例的输入命令。author_id 来自认证依赖，绝不来自请求体（US-C01）。"""
+    """评论用例的输入命令。author_id 来自认证依赖，绝不来自请求体（US-C01 / F14）。"""
 
     target_type: CommentTarget
     target_id: UUID
     body: str
     author_id: UUID
+    parent_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +85,8 @@ class EditQuestionCommand:
     actor_id: UUID
     title: str | None
     body: str | None
+    course_id: UUID | None | UnsetType = UNSET
+    actor_role: str = "student"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,3 +105,54 @@ class CreateBountyCommand:
     question_id: UUID
     teacher_id: UUID
     amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteQuestionCommand:
+    """软删除问题命令（F13）。actor_id 来自认证依赖，须为提问者。"""
+
+    question_id: UUID
+    actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteAnswerCommand:
+    """软删除回答命令（F13）。actor_id 来自认证依赖，须为回答者。"""
+
+    answer_id: UUID
+    actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyAnswerCommand:
+    """认证回答命令（F15）。actor_id 来自认证依赖（teacher / ta / admin）。"""
+
+    answer_id: UUID
+    actor_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class UnverifyAnswerCommand:
+    """取消回答认证命令（F15）。"""
+
+    answer_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CreateReportCommand:
+    """提交内容举报命令（F18）。"""
+
+    reporter_id: UUID
+    target_type: ReportTargetType
+    target_id: UUID
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolveReportCommand:
+    """管理员处置举报命令（F18）。"""
+
+    report_id: UUID
+    admin_id: UUID
+    action: ReportAction
+    note: str | None = None

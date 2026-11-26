@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from app.contexts.qa.domain.errors import AcceptedAnswerCannotDeleteError
 from app.contexts.qa.domain.value_objects import Body
 
 
@@ -56,6 +57,24 @@ class Answer:
     # Answer.post() 恒 0——写路径与领域不变式不得依赖该值。
     votes_count: int = 0
     events: list[AnswerPosted] = field(default_factory=list, repr=False, compare=False)
+    deleted_at: datetime | None = None
+    is_teacher_verified: bool = False
+    verified_by: UUID | None = None
+    verified_at: datetime | None = None
+
+    @property
+    def is_deleted(self) -> bool:
+        """是否已软删除（F13）。"""
+        return self.deleted_at is not None
+
+    def soft_delete(self, *, at: datetime | None = None) -> bool:
+        """软删除回答（F13，D1–D2）：已删除保持幂等返回 False；已采纳不可删除（409）。"""
+        if self.is_deleted:
+            return False
+        if self.is_accepted:
+            raise AcceptedAnswerCannotDeleteError("已采纳的回答不可删除")
+        self.deleted_at = at if at is not None else datetime.now(UTC)
+        return True
 
     @classmethod
     def post(cls, *, question_id: UUID, author_id: UUID, body_value: str) -> Answer:
@@ -88,5 +107,23 @@ class Answer:
         self.is_accepted = True
 
     def edit_body(self, *, body_value: str) -> None:
-        """编辑回答正文（US-A02 / F12）：值对象先校验后赋值，保留既有采纳/票数状态。"""
+        """编辑回答正文（US-A02 / F12）：值对象先校验后赋值，保留既有采纳/票数/认证状态。"""
         self.body = Body(body_value)
+
+    def verify(self, actor_id: UUID, *, at: datetime | None = None) -> bool:
+        """教师/助教/管理员认证回答（F15 D3）：已认证则保持原认证人与时间不变，幂等返回 False。"""
+        if self.is_teacher_verified:
+            return False
+        self.is_teacher_verified = True
+        self.verified_by = actor_id
+        self.verified_at = at if at is not None else datetime.now(UTC)
+        return True
+
+    def unverify(self) -> bool:
+        """取消回答认证（F15 D3）：未认证时保持幂等返回 False。"""
+        if not self.is_teacher_verified:
+            return False
+        self.is_teacher_verified = False
+        self.verified_by = None
+        self.verified_at = None
+        return True

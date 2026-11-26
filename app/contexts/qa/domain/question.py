@@ -6,12 +6,14 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 from app.contexts.qa.domain.errors import (
+    AcceptedAnswerCannotDeleteError,
     AnswerAlreadyAcceptedError,
     QuestionAlreadyClosedError,
     QuestionClosedError,
 )
 from app.contexts.qa.domain.tag import Tag
 from app.contexts.qa.domain.value_objects import Body, Title
+from app.shared.sentinel import UNSET, UnsetType
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +63,27 @@ class Question:
     events: list[QuestionPublished | QuestionClosed] = field(
         default_factory=list, repr=False, compare=False
     )
+    deleted_at: datetime | None = None
+    course_id: UUID | None = None
+
+    @property
+    def is_deleted(self) -> bool:
+        """是否已软删除（F13）。"""
+        return self.deleted_at is not None
+
+    def soft_delete(self, *, at: datetime | None = None) -> bool:
+        """软删除问题（F13，D1–D3）。
+
+        - 已删除时保持原 deleted_at 不变并返回 False（作者重复删幂等）；
+        - 已有采纳答案时拒绝删除（AcceptedAnswerCannotDeleteError → 409）；
+        - 允许删除已关闭问题（内容回收例外，不调用 ensure_open）。
+        """
+        if self.is_deleted:
+            return False
+        if self.accepted_answer_id is not None:
+            raise AcceptedAnswerCannotDeleteError("该问题已有采纳答案，不可删除")
+        self.deleted_at = at if at is not None else datetime.now(UTC)
+        return True
 
     def mark_accepted(self, answer_id: UUID) -> None:
         """记录采纳答案引用（US-V03 跨聚合双写的本侧；幂等检查在应用层）。"""
@@ -95,8 +118,14 @@ class Question:
         if self.status is QuestionStatus.CLOSED:
             raise QuestionClosedError(f"已关闭的问题不可{action}")
 
-    def edit_title_body(self, *, title_value: str, body_value: str) -> None:
-        """编辑标题+正文（US-Q08；裁定 D6 仅标题+正文，标签不可编辑）。
+    def edit_title_body(
+        self,
+        *,
+        title_value: str,
+        body_value: str,
+        course_id: UUID | None | UnsetType = UNSET,
+    ) -> None:
+        """编辑标题+正文（US-Q08；裁定 D6 仅标题+正文，标签不可编辑；F17 可选变更课程关联）。
 
         已关闭问题不可编辑（QuestionClosedError→409，全冻结裁定）；
         值对象先构后赋——任一校验失败（ValueError→422）不产生半改状态。
@@ -106,6 +135,8 @@ class Question:
         body = Body(body_value)
         self.title = title
         self.body = body
+        if not isinstance(course_id, UnsetType):
+            self.course_id = course_id
 
     @classmethod
     def ask(
@@ -115,6 +146,7 @@ class Question:
         body_value: str,
         author_id: UUID,
         tags: list[Tag] | None = None,
+        course_id: UUID | None = None,
     ) -> Question:
         """工厂：发布问题。值对象即校验（标题/正文非空且长度合法），并发布 QuestionPublished。
 
@@ -128,6 +160,7 @@ class Question:
             author_id=author_id,
             created_at=now,
             tags=list(tags) if tags else [],
+            course_id=course_id,
         )
         question.events.append(
             QuestionPublished(question_id=question.id, author_id=author_id, occurred_at=now)

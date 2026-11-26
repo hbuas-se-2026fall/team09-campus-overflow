@@ -49,6 +49,11 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/answers/{answer_id}",
         "/api/v1/answers/{answer_id}/comments",
         "/api/v1/answers/{answer_id}/accept",
+        "/api/v1/answers/{answer_id}/verify",
+    ],
+    "admin": [
+        "/api/v1/admin/users",
+        "/api/v1/admin/users/{user_id}/role",
     ],
     "tags": ["/api/v1/tags"],
     "users": ["/api/v1/users/{user_id}/profile"],
@@ -62,6 +67,17 @@ _FAMILIES: dict[str, list[str]] = {
         "/api/v1/notifications/unread-count",
         "/api/v1/notifications/{notification_id}/read",
         "/api/v1/notifications/read-all",
+    ],
+    "courses": [
+        "/api/v1/courses",
+        "/api/v1/courses/{course_id}/enroll",
+        "/api/v1/courses/{course_id}/students",
+        "/api/v1/courses/{course_id}/leaderboard",
+    ],
+    "reports": [
+        "/api/v1/reports",
+        "/api/v1/admin/reports",
+        "/api/v1/admin/reports/{report_id}/resolve",
     ],
 }
 
@@ -110,8 +126,8 @@ class TestContractCompleteness:
             for method in item
             if method in _METHODS
         ]
-        assert len(paths) == 31, f"paths 数量漂移：期望 31，实际 {len(paths)}"
-        assert len(operations) == 34, f"operations 数量漂移：期望 34，实际 {len(operations)}"
+        assert len(paths) == 41, f"paths 数量漂移：期望 41，实际 {len(paths)}"
+        assert len(operations) == 48, f"operations 数量漂移：期望 48，实际 {len(operations)}"
 
     def test_operation_ids_unique(self, schema: dict[str, Any]) -> None:
         ids = [
@@ -152,3 +168,167 @@ class TestContractConventions:
             assert "status" in question_schema["required"]
             status_ref = question_schema["properties"]["status"]["$ref"]
             assert status_ref == "#/components/schemas/QuestionStatus"
+
+    def test_comment_schemas_expose_nullable_parent_id(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        req_props = schemas["CommentRequest"]["properties"]
+        resp_props = schemas["CommentResponse"]["properties"]
+        assert "parent_id" in req_props
+        assert "parent_id" in resp_props
+        assert schemas["CommentRequest"].get("additionalProperties") is False
+        for prop in (req_props["parent_id"], resp_props["parent_id"]):
+            any_of = prop.get("anyOf", [])
+            assert {"type": "string", "format": "uuid"} in any_of
+            assert {"type": "null"} in any_of
+
+    def test_f15_rbac_and_answer_verification_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert schemas["RegisterRequest"]["properties"]["role"]["enum"] == [
+            "student",
+            "teacher",
+        ]
+        role_req = schemas["UpdateUserRoleRequest"]
+        assert role_req.get("additionalProperties") is False
+        assert role_req["properties"]["role"]["enum"] == [
+            "student",
+            "teacher",
+            "ta",
+            "admin",
+        ]
+        admin_item_props = schemas["AdminUserItem"]["properties"]
+        assert "password" not in admin_item_props
+        assert "password_hash" not in admin_item_props
+        ans_props = schemas["AnswerResponse"]["properties"]
+        assert {"is_teacher_verified", "verified_by_name", "verified_at"} <= set(
+            ans_props.keys()
+        )
+
+    def test_f16_course_and_enrollment_schemas(self, schema: dict[str, Any]) -> None:
+        schemas = schema["components"]["schemas"]
+        create_req = schemas["CreateCourseRequest"]
+        assert create_req.get("additionalProperties") is False
+        assert {"code", "name", "semester"} <= set(create_req["properties"].keys())
+
+        course_props = schemas["CourseResponse"]["properties"]
+        assert {
+            "id",
+            "code",
+            "name",
+            "semester",
+            "teacher_id",
+            "teacher_name",
+            "created_at",
+        } <= set(course_props.keys())
+
+        enroll_props = schemas["EnrollmentResponse"]["properties"]
+        assert {
+            "id",
+            "course_id",
+            "student_id",
+            "student_name",
+            "enrolled_at",
+        } <= set(enroll_props.keys())
+
+        student_item_props = schemas["CourseStudentItem"]["properties"]
+        assert set(student_item_props.keys()) == {
+            "student_id",
+            "student_name",
+            "enrolled_at",
+        }
+        assert "email" not in student_item_props
+        assert "password_hash" not in student_item_props
+
+        for list_name in ("CourseListResponse", "CourseStudentListResponse"):
+            assert {
+                "items",
+                "total",
+                "page",
+                "page_size",
+                "total_pages",
+            } <= set(schemas[list_name]["properties"].keys())
+
+    def test_f17_question_course_and_leaderboard_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert "course_id" in schemas["AskQuestionRequest"]["properties"]
+        assert "course_id" in schemas["EditQuestionRequest"]["properties"]
+        for name in ("QuestionResponse", "QuestionListItem", "QuestionDetailResponse"):
+            props = schemas[name]["properties"]
+            assert {"course_id", "course_name"} <= set(props.keys())
+
+        lb_resp = schemas["CourseLeaderboardResponse"]
+        assert lb_resp.get("additionalProperties") is False
+        assert {"course_id", "course_code", "course_name", "entries"} <= set(
+            lb_resp["properties"].keys()
+        )
+
+        lb_entry = schemas["CourseLeaderboardEntryResponse"]
+        assert lb_entry.get("additionalProperties") is False
+        assert {
+            "user_id",
+            "display_name",
+            "accepted_count",
+            "net_votes",
+            "answer_count",
+            "rank",
+        } <= set(lb_entry["properties"].keys())
+
+    def test_f18_report_and_admin_resolution_schemas(
+        self, schema: dict[str, Any]
+    ) -> None:
+        schemas = schema["components"]["schemas"]
+        assert schemas["ReportTargetType"]["enum"] == ["question", "answer"]
+        assert schemas["ReportAction"]["enum"] == [
+            "dismiss",
+            "close_question",
+            "soft_delete",
+        ]
+        assert schemas["ReportStatus"]["enum"] == ["pending", "resolved", "dismissed"]
+
+        create_req = schemas["CreateReportRequest"]
+        assert create_req.get("additionalProperties") is False
+        assert {"target_type", "target_id", "reason"} <= set(
+            create_req["properties"].keys()
+        )
+        assert create_req["properties"]["target_type"]["$ref"] == (
+            "#/components/schemas/ReportTargetType"
+        )
+
+        resolve_req = schemas["ResolveReportRequest"]
+        assert resolve_req.get("additionalProperties") is False
+        assert {"action", "note"} <= set(resolve_req["properties"].keys())
+        assert resolve_req["properties"]["action"]["$ref"] == (
+            "#/components/schemas/ReportAction"
+        )
+
+        rep_resp = schemas["ReportResponse"]
+        assert rep_resp.get("additionalProperties") is False
+        assert {
+            "id",
+            "reporter_id",
+            "reporter_name",
+            "target_type",
+            "target_id",
+            "reason",
+            "status",
+            "resolution_action",
+            "resolution_note",
+            "resolved_by",
+            "resolved_by_name",
+            "created_at",
+            "resolved_at",
+        } <= set(rep_resp["properties"].keys())
+
+        admin_params = {
+            p["name"]: p
+            for p in schema["paths"]["/api/v1/admin/reports"]["get"]["parameters"]
+        }
+        status_schema = admin_params["status"]["schema"]
+        assert status_schema["default"] == "pending"
+        assert {"const": "all", "type": "string"} in status_schema["anyOf"]
+        assert {"$ref": "#/components/schemas/ReportStatus"} in status_schema["anyOf"]

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
     text,
 )
@@ -46,6 +48,14 @@ class QuestionModel(Base):
     )
     # 关闭态（US-Q08，迭代 5）：open/closed；server_default 让存量行随迁移自动归 open
     status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="open")
+    # 软删除时间戳（F13）：NULL 表示活跃，非 NULL 表示已软删除（不级联写子表）
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 课程关联（F17）：可空 UUID（零跨上下文外键，存量问题 NULL）
+    course_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
 
     __table_args__ = (
         # F09：F02 的 ILIKE '%q%' 标题/正文模糊搜索走 pg_trgm GIN；模型同步声明防
@@ -92,6 +102,22 @@ class AnswerModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # 软删除时间戳（F13）：NULL 表示活跃，非 NULL 表示已软删除
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 教师/助教/管理员认证回答状态（F15 D2/D3）
+    is_teacher_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_answers_verified_by", ondelete="SET NULL"),
+        nullable=True,
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         # 一题一采纳的库级兜底（AC-12 暴力测试发现应用层检查存在并发竞态）：
@@ -136,10 +162,11 @@ class VoteModel(Base):
 
 
 class CommentModel(Base):
-    """comments 表：Comment 实体持久化（迭代 3，US-C01）。
+    """comments 表：Comment 实体持久化（迭代 3，US-C01 / F14 二级回复）。
 
     多态 target（题评挂 question / 答评挂 answer），与 votes 同模式不做库级外键，
-    存在性由用例检查；宿主删除的清理语义随 Q08 定稿（台账遗留③同口径）。
+    存在性由用例检查；F14 新增可空自引用 parent_id（RESTRICT 防误删父评论，
+    CHECK 禁止自引用，二级上限由领域层校验）。
     """
 
     __tablename__ = "comments"
@@ -154,6 +181,11 @@ class CommentModel(Base):
         nullable=False,
         index=True,
     )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("comments.id", name="fk_comments_parent_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -161,6 +193,12 @@ class CommentModel(Base):
     __table_args__ = (
         # 评论列表按 (target, created_at 正序) 读取（1.3 功能域 9）
         Index("ix_comments_target_created", "target_type", "target_id", "created_at"),
+        # F14：父评论反查索引与禁止自引用库级兜底
+        Index("ix_comments_parent_id", "parent_id"),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id",
+            name="ck_comments_no_self_parent",
+        ),
     )
 
 
@@ -287,5 +325,54 @@ class QuestionBountyModel(Base):
             "question_id",
             unique=True,
             postgresql_where=text("status = 'open'"),
+        ),
+    )
+
+
+class ReportModel(Base):
+    """内容举报表（F18）：多态 target_type 仅限 question/answer，零跨上下文外键。"""
+
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pending"
+    )
+    resolution_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_reports_pending_reporter_target",
+            "reporter_id",
+            "target_type",
+            "target_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index("ix_reports_status_created", "status", "created_at"),
+        Index("ix_reports_target", "target_type", "target_id"),
+        CheckConstraint(
+            "target_type IN ('question', 'answer')",
+            name="ck_reports_target_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'resolved', 'dismissed')",
+            name="ck_reports_status",
         ),
     )

@@ -10,6 +10,13 @@ from app.contexts.qa.domain.answer import Answer
 from app.contexts.qa.domain.bounty import Bounty, PointsEntry
 from app.contexts.qa.domain.comment import Comment, CommentTarget
 from app.contexts.qa.domain.question import Question, QuestionStatus
+from app.contexts.qa.domain.report import (
+    Report,
+    ReportAction,
+    ReportStatus,
+    ReportTargetType,
+    ResolutionNote,
+)
 from app.contexts.qa.domain.tag import _MAX_TAGS_PER_QUESTION, Tag
 from app.contexts.qa.domain.vote import Vote, VoteTarget
 from app.shared.errors import DomainValidationError
@@ -47,6 +54,7 @@ class QuestionFilter:
     created_from: datetime | None = None
     created_to: datetime | None = None
     q: str | None = None
+    course_id: UUID | None = None
     tag_keys: tuple[str, ...] = field(init=False, default=())
 
     def __post_init__(self) -> None:
@@ -118,9 +126,22 @@ class QuestionRepository(Protocol):
         ...
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
-        """按问题 ID 查询；for_update=True 时对问题行加写锁（须在事务内持有至提交）。"""
+        """按问题 ID 查询；for_update=True 时对问题行加写锁（须在事务内持有至提交）。
+
+        默认过滤软删除行；include_deleted=True 仅限删除用例判定作者幂等 204 vs 非作者 404。
+        """
+        ...
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        """条件软删除问题（F13）：由未删迁移为已删返回 True；已删返回 False；
+        不存在抛 QuestionNotFoundError；已有采纳答案抛 AcceptedAnswerCannotDeleteError。
+        """
         ...
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
@@ -162,8 +183,24 @@ class AnswerRepository(Protocol):
         """F12：仅更新回答正文（与采纳条件更新分离，不触碰 is_accepted）。"""
         ...
 
-    async def get_by_id(self, answer_id: UUID) -> Answer | None:
-        """按回答 ID 查询（投票/采纳定位回答使用）。"""
+    async def update_verification(self, answer: Answer) -> None:
+        """F15：仅更新回答认证状态（与正文/采纳更新职责隔离，ISP）。"""
+        ...
+
+    async def get_by_id(
+        self, answer_id: UUID, *, include_deleted: bool = False
+    ) -> Answer | None:
+        """按回答 ID 查询（投票/采纳/编辑/删除定位回答使用）。
+
+        默认过滤自身已删或所属问题已删的回答；include_deleted=True 仅限删除用例读取。
+        """
+        ...
+
+    async def soft_delete(self, answer_id: UUID, deleted_at: datetime) -> bool:
+        """条件软删除回答（F13）：父问题活跃且未采纳由未删迁移为已删返回 True；
+        父问题活跃且已删返回 False；不存在抛 AnswerNotFoundError；
+        父问题已删抛 QuestionNotFoundError；已采纳抛 AcceptedAnswerCannotDeleteError。
+        """
         ...
 
     async def list_by_question(self, question_id: UUID) -> list[Answer]:
@@ -189,10 +226,14 @@ class VoteRepository(Protocol):
 
 
 class CommentRepository(Protocol):
-    """评论持久化端口：domain 定义接口，infrastructure 实现（迭代 3，US-C01）。"""
+    """评论持久化端口：domain 定义接口，infrastructure 实现（迭代 3，US-C01 / F14）。"""
 
     async def add(self, comment: Comment) -> None:
         """新增评论（多态 target：题评挂 Question、答评挂 Answer）。"""
+        ...
+
+    async def get_by_id(self, comment_id: UUID) -> Comment | None:
+        """按评论 ID 查询（F14 校验二级回复的父评论存在性、归属与层级）。"""
         ...
 
     async def list_by_target(
@@ -279,4 +320,61 @@ class TagCatalogRepository(Protocol):
 
     async def list_all(self) -> list[Tag]:
         """列出目录全部标签（显示名 = 建目时的规范名）。"""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class CourseLeaderboardEntry:
+    """课程贡献排行榜条目（F17：基于课程内活跃问题采纳数与净赞数只读聚合）。"""
+
+    user_id: UUID
+    accepted_count: int
+    net_votes: int
+    answer_count: int
+    rank: int
+
+
+class CourseLeaderboardRepository(Protocol):
+    """课程贡献榜单只读查询端口（ISP：独立于 QuestionRepository）。"""
+
+    async def list_top_contributors(
+        self, course_id: UUID, *, limit: int
+    ) -> list[CourseLeaderboardEntry]:
+        """按采纳数降序、净赞数降序聚合课程答主贡献排名。"""
+        ...
+
+
+class ReportRepository(Protocol):
+    """内容举报持久化端口（F18，ISP 独立端口）。"""
+
+    async def add(self, report: Report) -> None:
+        """新增举报；待处理重复举报由部分唯一索引兜底抛 DuplicatePendingReportError。"""
+        ...
+
+    async def get_by_id(self, report_id: UUID) -> Report | None:
+        """按 ID 查询举报；不存在返回 None。"""
+        ...
+
+    async def list_paginated(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        status: ReportStatus | None = None,
+        target_type: ReportTargetType | None = None,
+    ) -> tuple[list[Report], int]:
+        """分页列出举报，返回（当前页列表，总条数）。"""
+        ...
+
+    async def resolve_pending(
+        self,
+        *,
+        report_id: UUID,
+        new_status: ReportStatus,
+        action: ReportAction,
+        note: ResolutionNote | None,
+        resolved_by: UUID,
+        resolved_at: datetime,
+    ) -> Report:
+        """条件抢占 pending 举报；不存在抛 404，已处置抛 409。"""
         ...

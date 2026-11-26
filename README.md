@@ -10,8 +10,8 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![React](https://img.shields.io/badge/React-18%20%2B%20TS%205-61DAFB?logo=react&logoColor=black)
-![OpenAPI](https://img.shields.io/badge/OpenAPI%203.1-31%20paths%20%2F%2034%20ops-6BA539?logo=openapiinitiative&logoColor=white)
-![Coverage](https://img.shields.io/badge/Coverage-83.45%25%20(domain%2094%25)-brightgreen)
+![OpenAPI](https://img.shields.io/badge/OpenAPI%203.1-41%20paths%20%2F%2048%20ops-6BA539?logo=openapiinitiative&logoColor=white)
+![Coverage](https://img.shields.io/badge/Coverage-84.44%25%20(domain%2094%25)-brightgreen)
 
 [核心特性](#-核心特性) · [架构设计](#-架构设计) · [API 契约](#-api-契约与端点一览) · [快速开始](#-快速开始) · [质量门禁](#-质量门禁与-ci) · [项目结构](#-目录结构) · [文档索引](#-文档索引)
 
@@ -31,10 +31,11 @@
 
 | 模块 | 已交付能力 |
 |:---|:---|
-| **身份与认证（`identity`）** | 学生（学号 + 邮箱）/ 教师（工号）分流注册（bcrypt 哈希）；JWT 双令牌（Access 15min + Refresh 7d Redis `GETDEL` 原子轮换与吊销）；登录失败锁定（5 次/15min → `423`）；校园资料局部更新（`UNSET` 哨兵 + 显式 `null` 清空）；HMAC + Redis Lua 邮箱验证码；公开个人名片最小披露与批量展示名供给面 |
-| **问答与检索（`qa`）** | 提问（至多 5 个标签）、编辑与终态关闭（关闭后投票/回答/评论/采纳/编辑全冻结）；多维筛选（标签 AND、状态、时区闭区间、`latest`/`votes` 排序）与 `pg_trgm` GIN 全文模糊检索；标签共现相关问题推荐；回答、一人一票防并发投票、一题一采纳（部分唯一索引兜底）；问题/回答评论 |
-| **激励与成长（`qa` + `reputation`）** | 教师初始积分与悬赏生命周期（发起冻结 → 采纳结算 → 关贴退款）；Celery 异步声誉记账（`(source, event_id)` 唯一索引幂等 + `acks_late`）；周/月/学期净得分排行榜（`Asia/Shanghai` 窗口 + `RANK()` 竞争排名 + 60s Redis 热榜缓存与故障降级）；实时用户徽章（回答数/采纳率/最长连续活跃） |
-| **站内通知（`discovery`）** | 新回答、回答被采纳、新评论同事务幂等写入（跳过自操作）；分页列表、未读筛选、单条/全部已读、未读计数，携带 `question_id` 与实时 `actor_name` |
+| **身份与认证（`identity`）** | 学生（学号 + 邮箱）/ 教师（工号）分流注册（bcrypt 哈希，严禁自助提权）；JWT 双令牌（Access 15min + Refresh 7d Redis `GETDEL` 原子轮换与吊销）+ 基于 DB 实时角色的 4 角色 RBAC（`student`/`teacher`/`ta`/`admin`）与管理员用户管理端点；登录失败锁定（5 次/15min → `423`）；校园资料局部更新（`UNSET` 哨兵 + 显式 `null` 清空）；HMAC + Redis Lua 邮箱验证码；公开个人名片最小披露与批量展示名供给面 |
+| **课程与选课（`course`）** | 课程公开分页与学期筛选（单源大写归一 `CourseCode` + `teacher_name` 回填）；教师/管理员建课；学生自助选课（重复选课 409）；教职查看选课学生名录（最小披露）；暴露窄只读已发布语言 `CourseAccessReader` 供问答上下文消费 |
+| **问答、审核与检索（`qa`）** | 提问（可选关联已选修课程、至多 5 个标签）、编辑（含课程绑定/解绑）与终态关闭（关闭后全互动冻结）；问题/回答软删除与全链路过滤；多维筛选（标签 AND、`course_id`、状态、时区闭区间、`latest`/`votes` 排序）与 `pg_trgm` GIN 全文模糊检索；标签共现相关问题推荐与公开课程贡献榜单；回答（含编辑与教师/助教/管理员幂等认证）、一人一票防并发投票、一题一采纳（部分唯一索引兜底）；问题/回答评论与严格二级回复；内容举报与管理员审核后台（部分唯一判重、3×2 处置策略、联动退还悬赏） |
+| **激励与成长（`qa` + `reputation`）** | 教师初始积分与悬赏生命周期（发起冻结 → 采纳结算 → 关贴/删题退款）；Celery 异步声誉记账（`(source, event_id)` 唯一索引幂等 + `acks_late`）；周/月/学期净得分排行榜（`Asia/Shanghai` 窗口 + `RANK()` 竞争排名 + 60s Redis 热榜缓存与故障降级）；实时用户徽章（回答数/采纳率/最长连续活跃） |
+| **站内通知（`discovery`）** | 新回答、回答被采纳、回答被认证（`answer_verified`）、新评论、评论二级回复（同人去重、跳过自操作）同事务幂等写入；分页列表、未读筛选、单条/全部已读、未读计数，携带 `question_id` 与实时 `actor_name` |
 | **契约与前端（`frontend`）** | 契约优先开发（[openapi.json](openapi.json) 与代码 CI 防漂移校验）；React 18 + TypeScript + Ant Design + React Query + Zustand 实现注册、登录、问题广场、详情互动、提问、标签与个人声誉页 |
 
 ---
@@ -98,43 +99,59 @@ flowchart LR
 
 ## API 契约与端点一览
 
-后端已交付 **31 条路径 / 34 个操作**，契约单源见根目录 [openapi.json](openapi.json)，完整参数与错误码语义见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)。
+后端已交付 **41 条路径 / 48 个操作**，契约单源见根目录 [openapi.json](openapi.json)，完整参数与错误码语义见 [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md)。
 
 | 业务域 | 端点摘要 | 关键能力 |
 |:---|:---|:---|
-| **身份与名片** | 9 个端点 | 注册/登录/刷新/登出、`/auth/me`、局部更新资料、邮箱验证码、公开个人名片 `/users/{id}/profile` |
-| **问答与互动** | 13 个端点 | 提问/列表（多维筛选 + `pg_trgm` 搜索）/详情/相关推荐/编辑/关闭、回答、投票、评论、采纳 |
+| **身份与名片** | 11 个端点 | 注册/登录/刷新/登出、`/auth/me`、局部更新资料、邮箱验证码、公开个人名片 `/users/{id}/profile`、管理员分页列表与角色调整 |
+| **课程与榜单** | 5 个端点 | 课程公开分页与学期筛选、教师/管理员建课、学生自助选课、教职查看选课学生（最小披露）、课程贡献排行榜 |
+| **问答与互动** | 17 个端点 | 提问/列表（多维筛选 + 课程筛选 + `pg_trgm` 搜索）/详情/相关推荐/编辑（含课程绑定解绑）/关闭/软删除（全链路过滤）、回答（含编辑、软删除与教师/助教认证）、投票、评论、采纳 |
+| **举报与审核** | 3 个端点 | 内容举报提交（限 `question`/`answer`，部分唯一判重 409）、管理员分页查询（默认 `pending` / 支持 `status=all`）与 3×2 处置（`dismiss`/`close_question`/`soft_delete`） |
 | **标签/徽章/悬赏/积分** | 5 个端点 | 标签目录、公开用户徽章统计、教师悬赏发起与查询、个人积分余额与流水 |
 | **声誉与榜单** | 2 个端点 | 本人声誉流水（他人 `403`）、公开周期排行榜（Redis 60s 缓存 + 实时展示名） |
 | **通知与运维** | 5 个端点 | 通知列表/未读数/单条已读/全部已读、`/health` 存活探针 |
 
 <details>
-<summary><strong>点击展开全部 31 条路径 / 34 个操作明细</strong></summary>
+<summary><strong>点击展开全部 41 条路径 / 48 个操作明细</strong></summary>
 
 | 域 | 端点 | 说明 |
 |:---|:---|:---|
-| 身份 | `POST /api/v1/auth/register` | 学生（学号+邮箱）/ 教师（工号）分流，bcrypt 哈希，重复注册 409 |
+| 身份 | `POST /api/v1/auth/register` | 学生（学号+邮箱）/ 教师（工号）分流，bcrypt 哈希，禁止注册 `ta`/`admin`（422），重复注册 409 |
 | | `POST /api/v1/auth/login` | 学号/工号 + 密码 → JWT 双令牌（失败超限 **423** 临时锁定：5 次/15 分钟窗口，防枚举统一计数） |
 | | `POST /api/v1/auth/refresh` | 轮换：旧 Refresh 原子消耗后签发新对 |
 | | `POST /api/v1/auth/logout` | 吊销 Refresh，幂等 204 |
-| | `GET /api/v1/auth/me` | 当前用户信息（需 Bearer Access，含校园资料与邮箱验证状态） |
+| | `GET /api/v1/auth/me` | 当前用户信息（需 Bearer Access，含实时角色、校园资料与邮箱验证状态） |
 | | `PATCH /api/v1/auth/me/profile` | 局部更新 `nickname`/`college`/`class_name`（显式 `null` 清空，200 返回更新后资料） |
 | | `POST /api/v1/auth/me/verify-email/send` | 发送 6 位邮箱验证码（60s 冷却 429，已验证 409） |
 | | `POST /api/v1/auth/me/verify-email/confirm` | 确认邮箱验证码（幂等 204，错码/过期/5 次作废 400） |
 | | `GET /api/v1/users/{user_id}/profile` | 公开个人主页（访客可用，最小披露，不含邮箱与学工号） |
-| 问答 | `POST /api/v1/questions` | 发布问题（登录用户，可带至多 5 个标签，返回 `author_name`） |
-| | `GET /api/v1/questions` | 列表（访客可用，分页；含 `author_name`，支持 `q` 搜索、`tag`/`status`/创建时间筛选与 `latest`/`votes` 排序） |
-| | `GET /api/v1/questions/{question_id}` | 详情（访客可用，答案按采纳优先排序，含标签、`author_name` 与三级评论） |
-| | `GET /api/v1/questions/{question_id}/related` | 相关问题推荐（按标签共现，访客可用，含 `author_name`） |
-| | `PATCH /api/v1/questions/{question_id}` | 编辑问题（仅提问者；仅标题+正文，部分更新；已关闭 409） |
-| | `PATCH /api/v1/answers/{answer_id}` | 编辑回答（仅回答者本人；已关闭 409；返回新正文、净票数、`author_name` 与完整评论） |
+| | `GET /api/v1/admin/users` | 管理员分页查看用户列表（需 `admin`；支持 `role` 筛选；绝不含 `password_hash`） |
+| | `PATCH /api/v1/admin/users/{user_id}/role` | 管理员修改用户角色（需 `admin`；保留原学工号，禁改本人 409，用户不存在 404，同角色幂等 200） |
+| 课程 | `GET /api/v1/courses` | 课程公开分页列表（支持 `semester` 筛选，批量回填 `teacher_name`） |
+| | `POST /api/v1/courses` | 开设课程（需 `teacher`/`admin`，课程码去空白转大写，重复码 409） |
+| | `POST /api/v1/courses/{course_id}/enroll` | 学生自助选课（需 `student`，缺课 404，重复选课 409） |
+| | `GET /api/v1/courses/{course_id}/students` | 查看选课学生（需 `teacher`/`ta`/`admin`，最小披露不含邮箱/学号） |
+| | `GET /api/v1/courses/{course_id}/leaderboard` | 课程贡献榜单（公开，按采纳数/净赞数 `RANK()` 排序，零写声誉账本） |
+| 问答 | `POST /api/v1/questions` | 发布问题（登录用户，可带至多 5 个标签与可选 `course_id`，返回 `author_name`/`course_id`/`course_name`） |
+| | `GET /api/v1/questions` | 列表（访客可用，分页；含 `author_name`/`course_id`/`course_name`，支持 `q`/`tag`/`status`/`course_id`/创建时间筛选与 `latest`/`votes` 排序） |
+| | `GET /api/v1/questions/{question_id}` | 详情（访客可用，答案按采纳优先排序，含标签、`author_name`、`course_id`/`course_name`、教师认证信息与平铺有序一/二级评论） |
+| | `GET /api/v1/questions/{question_id}/related` | 相关问题推荐（按标签共现，访客可用，含 `author_name`、`course_id`/`course_name`） |
+| | `PATCH /api/v1/questions/{question_id}` | 编辑问题（仅提问者；标题/正文/课程绑定与 `null` 解绑；已关闭 409） |
+| | `DELETE /api/v1/questions/{question_id}` | 软删除问题（仅提问者；作者重复删幂等 204；已有采纳答案 409；联动退还开放悬赏） |
+| | `PATCH /api/v1/answers/{answer_id}` | 编辑回答（仅回答者本人；已关闭 409；返回新正文、净票数、`author_name`、认证状态与完整评论） |
+| | `DELETE /api/v1/answers/{answer_id}` | 软删除回答（仅回答者本人；父问题活跃时重复删幂等 204；已采纳 409） |
+| | `POST /api/v1/answers/{answer_id}/verify` | 认证回答（需 `teacher`/`ta`/`admin`，学生 403；幂等 200 返回 `AnswerResponse`，首次触发 `answer_verified` 通知） |
+| | `DELETE /api/v1/answers/{answer_id}/verify` | 取消认证回答（需 `teacher`/`ta`/`admin`，学生 403；幂等 204，已关闭 409） |
 | | `POST /api/v1/questions/{question_id}/close` | 关闭问题（仅提问者，终态；重复关闭/已采纳 409；未采纳悬赏全额退款） |
 | | `POST /api/v1/questions/{question_id}/answers` | 发布回答（返回 `author_name`） |
 | | `POST /api/v1/questions/{question_id}/vote` | 问题投票（顶/踩） |
 | | `POST /api/v1/questions/{question_id}/answers/{answer_id}/vote` | 回答投票（重复票/改票一律 409） |
-| | `POST /api/v1/questions/{question_id}/comments` | 问题评论（返回 `author_name`） |
-| | `POST /api/v1/answers/{answer_id}/comments` | 回答评论（返回 `author_name`） |
+| | `POST /api/v1/questions/{question_id}/comments` | 问题评论与二级回复（可选 `parent_id`，返回 `author_name` 与 `parent_id`） |
+| | `POST /api/v1/answers/{answer_id}/comments` | 回答评论与二级回复（可选 `parent_id`，返回 `author_name` 与 `parent_id`） |
 | | `POST /api/v1/answers/{answer_id}/accept` | 采纳最佳答案（仅提问者，非作者 403 / 重复采纳 409；联动结算悬赏） |
+| 举报 | `POST /api/v1/reports` | 提交内容举报（登录用户；仅限 `question`/`answer`，已删 404，待处理重复 409） |
+| | `GET /api/v1/admin/reports` | 管理员分页查看举报列表（需 `admin`；`status` 默认 `pending`，支持 `all`/`resolved`/`dismissed` 与 `target_type` 筛选，回填展示名） |
+| | `POST /api/v1/admin/reports/{report_id}/resolve` | 管理员处置举报（需 `admin`；支持 `dismiss`/`close_question`/`soft_delete`，已处理 409，回答禁关贴 422） |
 | 标签 | `GET /api/v1/tags` | 标签目录（访客可用，码点序、同名唯一归并） |
 | 徽章 | `GET /api/v1/users/{user_id}/badges` | 用户徽章与活跃统计（公开；回答数/采纳率/最长连续活跃） |
 | 悬赏 | `POST /api/v1/questions/{question_id}/bounty` | 发起教师悬赏（仅教师 403；关闭/已采纳/余额不足/重复悬赏 409） |
@@ -226,11 +243,11 @@ pnpm dev          # Vite 默认代理 /api -> http://localhost:8123（可用 VIT
 | 端 | 门禁项 | 命令 | 当前实测结果 |
 |:--|:--|:--|:--|
 | 后端 | Lint | `ruff check .` | **0 违规** |
-| 后端 | 严格类型检查 | `mypy app` | `--strict` **0 错误**（144 文件） |
-| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **346 passed**，总覆盖率 **83.45%**（≥ 70%） |
+| 后端 | 严格类型检查 | `mypy app` | `--strict` **0 错误**（182 文件） |
+| 后端 | 单元测试 + 总覆盖率 | `pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70` | **479 passed**，总覆盖率 **84.44%**（≥ 70%） |
 | 后端 | 核心聚合覆盖率 | `python -m coverage report --include="*/domain/*" --fail-under=90` | **94%**（≥ 90%） |
-| 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（31 paths / 34 ops） |
-| 后端 | 集成测试（需 PG + Redis） | `pytest -m integration` | **205 passed**（全库合计 **551 passed**） |
+| 后端 | OpenAPI 防漂移 | `python scripts/export_openapi.py --check` | 与 [openapi.json](openapi.json) 一致（41 paths / 48 ops） |
+| 后端 | 集成与并发回归 | `pytest -m integration -q`（+ F18 定向并发 2 轮 & 独立库 `campus_mig_test` 往返） | F18 定向集成与并发 2 轮 **4 passed × 2**（25.92s / 25.90s）；阶段 C（`v1.2.0`）全量真库集成 **238 passed**（441.11s，F01–F18 合计 **717 passed**） |
 | 前端 | 类型 / 测试 / 构建 / Lint | `pnpm run typecheck && pnpm run test && pnpm run build && pnpm run lint` | 由 `frontend` Job 门禁保障 |
 
 ---
@@ -245,14 +262,15 @@ CampusOverflow/
 │   ├── platform/http/                  # 请求体上限、错误映射、函数级会话依赖
 │   ├── shared/                         # Engine / Redis / 文本校验 / 异常基类 / UNSET 哨兵
 │   └── contexts/                       # DDD 限界上下文（每上下文含 domain/application/infrastructure/interfaces）
-│       ├── identity/                   # 注册 / 登录 / JWT / RBAC / 校园资料 / 邮箱验证 / 公开名片（F09–F11）
-│       ├── qa/                         # 问题（pg_trgm 检索）/ 回答 / 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分
+│       ├── identity/                   # 注册 / 登录 / JWT / RBAC 管理 / 校园资料 / 邮箱验证 / 公开名片（F09–F11/F15）
+│       ├── course/                     # 课程目录 / 学生自助选课 / 选课名录 / 只读准入端口（F16）
+│       ├── qa/                         # 问题（关联课程/pg_trgm 检索）/ 回答（编辑/认证）/ 投票 / 采纳 / 评论 / 标签 / 徽章 / 悬赏 / 积分 / 课程榜单 / 内容举报与后台审核（F17–F18）
 │       ├── reputation/                 # 声誉流水 + 排行榜（Redis 缓存 + 展示名）+ Celery 记账（F05/F08/F11）
-│       └── discovery/                  # 站内通知中心（F04/F11）
-├── alembic/                            # 数据库版本化迁移脚本（当前 head：c451483b0660）
+│       └── discovery/                  # 站内通知中心（F04/F11/F14–F15）
+├── alembic/                            # 数据库版本化迁移脚本（当前 head：78debaff54c7）
 ├── frontend/                           # React 18 + TypeScript 5 + Vite 6 前端工程
 ├── tests/                              # 架构护栏 / 契约防漂移 / 单元 / 集成 / 验收测试
-├── scripts/                            # OpenAPI 导出与校验脚本、Windows 一键启动器源码
+├── scripts/                            # OpenAPI 导出校验、管理员种子（seed_admin.py）与 Windows 一键启动器源码
 ├── docs/                               # 进度表、ADR、领域模型、Sprint 工件、测试台账与工程标准
 ├── openapi.json                        # OpenAPI 3.1 单源接口契约
 ├── docker-compose.yml                  # 本地 PostgreSQL 16 + Redis 7 编排
@@ -269,8 +287,8 @@ CampusOverflow/
 | 阶段 1 | Sprint 1 文档（故事地图 / Backlog / Gherkin / 领域模型） | **完成** |
 | 阶段 2 | Walking Skeleton（注册 → 登录 → 提问 → 列表 → 详情 + 契约交付） | **完成** |
 | 阶段 3 | 核心特性（回答 / 投票 / 采纳 / 评论 / 标签 / 声誉 + Celery / 测试冲刺 / 迭代 5 治理） | **完成** |
-| 增量特性 A | `F01–F12`（筛选 / 搜索 / 相关推荐 / 通知 / 榜单 / 徽章 / 悬赏 / 热榜缓存 / 读性能与 `pg_trgm` / 资料与邮箱验证 / 展示名供给与个人主页 / 编辑回答） | **已交付** |
-| 后续规划 | `F13–F18`（软删除 / 二级评论 / RBAC 扩展 / 课程上下文 / 内容审核）与阶段 4 上线（`F19–F20`） | 规划中 |
+| 增量特性 A/B | `F01–F15`（筛选 / 搜索 / 相关推荐 / 通知 / 榜单 / 徽章 / 悬赏 / 热榜缓存 / 读性能与 `pg_trgm` / 资料与邮箱验证 / 展示名供给与个人主页 / 编辑回答 / 软删除与全链路过滤 / 评论二级回复 / RBAC 扩展与教师认证回答） | **已交付** |
+| 增量特性 C | `F16–F18`（课程上下文与选课 / 问题关联课程与筛选榜单 / 内容举报与管理员后台） | **已实现（待阶段 4 `F19–F20`）** |
 
 ---
 
@@ -284,11 +302,11 @@ CampusOverflow/
 | [docs/domain/](docs/domain) | 限界上下文图、聚合清单、统一语言术语表 |
 | [docs/api/api-contract-notes.md](docs/api/api-contract-notes.md) | 前端消费指南、错误形态速查与接口语义口径 |
 | [docs/sprint/](docs/sprint) | 故事地图、Product Backlog、Gherkin 验收标准、PR 评审与 Retro |
-| [docs/test/](docs/test) | 各阶段与 F01–F12 开发测试台账（含并发竞态与暴力测试实证） |
+| [docs/test/](docs/test) | 各阶段与 F01–F18 开发测试台账（含并发竞态与暴力测试实证） |
 | [docs/plan/phase3-plan.md](docs/plan/phase3-plan.md) | 阶段 3 实施计划 v3 |
 
 ---
 
 ## 当前版本
 
-`v0.1.0` —— 阶段 0–3 已收口，F 系列增量特性已交付 **F01–F12**（阶段 4 容器化上线待推进）。
+`v1.2.0-rc` —— 阶段 0–3、增量特性 A/B（`F01–F15`）及阶段 C（`F16–F18`：课程上下文与选课 / 问题关联课程与筛选榜单 / 内容举报与管理员后台）已实现并完成阶段 C 全量真库集成回归（717 passed），持续推进阶段 4 上线（`F19–F20`）。

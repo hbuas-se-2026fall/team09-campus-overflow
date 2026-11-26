@@ -32,12 +32,23 @@ class FakeQuestionRepository:
         self.question = question
 
     async def get_by_id(
-        self, question_id: UUID, *, for_update: bool = False
+        self,
+        question_id: UUID,
+        *,
+        for_update: bool = False,
+        include_deleted: bool = False,
     ) -> Question | None:
         self.for_update_calls.append(for_update)
-        if self.question is not None and self.question.id == question_id:
+        if (
+            self.question is not None
+            and self.question.id == question_id
+            and (include_deleted or not self.question.is_deleted)
+        ):
             return self.question
         return None
+
+    async def soft_delete(self, question_id: UUID, deleted_at: datetime) -> bool:
+        return False
 
     async def list_related(self, question_id: UUID, limit: int) -> list[Question]:
         return []

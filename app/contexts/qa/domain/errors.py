@@ -13,6 +13,10 @@ class AnswerNotFoundError(QADomainError):
     """目标回答不存在（路由层转 404）。"""
 
 
+class CommentNotFoundError(QADomainError):
+    """目标父评论不存在（F14，路由层转 404）。"""
+
+
 class AlreadyVotedError(QADomainError):
     """同一用户对同一目标已有票：一人一票不变式（v3 裁定 #5：不可改票，路由层转 409）。"""
 
@@ -49,3 +53,31 @@ class InsufficientPointsError(QADomainError):
 
 class BountyAlreadyActiveError(QADomainError):
     """同一问题已有进行中的悬赏（F07，D13：部分唯一索引兜底，路由层转 409）。"""
+
+
+class AcceptedAnswerCannotDeleteError(QADomainError):
+    """已采纳内容不可删除（F13，D2：问题已有采纳答案或回答已被采纳均不可删除，路由层转 409）。"""
+
+
+class CourseNotFoundError(QADomainError):
+    """关联或查询的课程不存在（F17，路由层转 404）。"""
+
+
+class CourseEnrollmentRequiredError(QADomainError):
+    """学生未选修目标课程，禁止在该课程下发问或关联（F17，路由层转 403）。"""
+
+
+class ReportNotFoundError(QADomainError):
+    """目标举报不存在（F18，路由层转 404）。"""
+
+
+class DuplicatePendingReportError(QADomainError):
+    """同一用户对同一目标存在未处理举报（F18，部分唯一索引兜底，路由层转 409）。"""
+
+
+class ReportAlreadyResolvedError(QADomainError):
+    """举报已被处置，不可重复处置（F18，条件更新兜底，路由层转 409）。"""
+
+
+class InvalidReportActionError(QADomainError):
+    """举报处理动作与目标类型不兼容（F18，路由层转 422）。"""

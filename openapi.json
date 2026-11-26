@@ -335,6 +335,399 @@
         }
       }
     },
+    "/api/v1/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "管理员分页查询用户列表（仅 admin；支持按角色筛选）",
+        "operationId": "list_admin_users_api_v1_admin_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 起",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 起"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，上限 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，上限 100"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "student",
+                    "teacher",
+                    "ta",
+                    "admin"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按角色筛选：student / teacher / ta / admin",
+              "title": "Role"
+            },
+            "description": "按角色筛选：student / teacher / ta / admin"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/{user_id}/role": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "管理员变更用户角色（仅 admin；禁止修改本人角色 409）",
+        "operationId": "update_user_role_api_v1_admin_users__user_id__role_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserItem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "分页查询课程列表（公开，支持按学期筛选）",
+        "operationId": "list_courses_api_v1_courses_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 起",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 起"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，上限 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，上限 100"
+          },
+          {
+            "name": "semester",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按学期筛选",
+              "title": "Semester"
+            },
+            "description": "按学期筛选"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "创建课程（仅教师/管理员；重复课程编号 409）",
+        "operationId": "create_course_api_v1_courses_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCourseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/enroll": {
+      "post": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "学生自助选课（仅学生；重复选课 409，课程不存在 404）",
+        "operationId": "enroll_course_api_v1_courses__course_id__enroll_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/courses/{course_id}/students": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "分页查询课程选课学生（仅教师/助教/管理员；课程不存在 404）",
+        "operationId": "list_course_students_api_v1_courses__course_id__students_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 起",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 起"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，上限 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，上限 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseStudentListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/questions": {
       "post": {
         "tags": [
@@ -519,6 +912,25 @@
               "title": "Created To"
             },
             "description": "创建时间上界（闭区间，须带时区；F01）"
+          },
+          {
+            "name": "course_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按课程 ID 筛选（F17）",
+              "title": "Course Id"
+            },
+            "description": "按课程 ID 筛选（F17）"
           }
         ],
         "responses": {
@@ -591,7 +1003,7 @@
         "tags": [
           "questions"
         ],
-        "summary": "编辑问题（仅提问者，US-Q08；仅标题+正文；已关闭 409）",
+        "summary": "编辑问题（仅提问者，US-Q08；仅标题+正文及可选课程关联；已关闭 409）",
         "operationId": "edit_question_api_v1_questions__question_id__patch",
         "security": [
           {
@@ -630,6 +1042,45 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "questions"
+        ],
+        "summary": "软删除问题（仅提问者；作者重复删幂等 204；已采纳 409；联动退还开放悬赏）",
+        "operationId": "delete_question_api_v1_questions__question_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -921,7 +1372,7 @@
         "tags": [
           "questions"
         ],
-        "summary": "对问题发表评论（登录用户，US-C01）",
+        "summary": "对问题发表评论或二级回复（登录用户，US-C01 / F14）",
         "operationId": "comment_question_api_v1_questions__question_id__comments_post",
         "security": [
           {
@@ -1030,6 +1481,132 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "软删除回答（仅回答者；父问题活跃时作者重复删幂等 204；已采纳 409）",
+        "operationId": "delete_answer_api_v1_answers__answer_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "answer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Answer Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/answers/{answer_id}/verify": {
+      "post": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "教师/助教/管理员认证回答（F15；幂等 200；学生 403 / 关闭问题 409）",
+        "operationId": "verify_answer_api_v1_answers__answer_id__verify_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "answer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Answer Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "answers"
+        ],
+        "summary": "教师/助教/管理员取消回答认证（F15；幂等 204；学生 403 / 关闭问题 409）",
+        "operationId": "unverify_answer_api_v1_answers__answer_id__verify_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "answer_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Answer Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/answers/{answer_id}/comments": {
@@ -1037,7 +1614,7 @@
         "tags": [
           "answers"
         ],
-        "summary": "对回答发表评论（登录用户，US-C01）",
+        "summary": "对回答发表评论或二级回复（登录用户，US-C01 / F14）",
         "operationId": "comment_answer_api_v1_answers__answer_id__comments_post",
         "security": [
           {
@@ -1302,6 +1879,63 @@
         }
       }
     },
+    "/api/v1/courses/{course_id}/leaderboard": {
+      "get": {
+        "tags": [
+          "courses"
+        ],
+        "summary": "课程贡献排行榜（公开，基于课程下被采纳回答数与净赞数聚合，课程不存在 404）",
+        "operationId": "get_course_leaderboard_api_v1_courses__course_id__leaderboard_get",
+        "parameters": [
+          {
+            "name": "course_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Course Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "返回条数，1~50",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "返回条数，1~50"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseLeaderboardResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/points": {
       "get": {
         "tags": [
@@ -1326,6 +1960,213 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/v1/reports": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "提交内容举报（登录用户，仅 question/answer；重复待处理举报 409）",
+        "operationId": "create_report_api_v1_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/reports": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "管理员分页查询举报列表（仅 admin；支持按 status/target_type 筛选）",
+        "operationId": "list_reports_api_v1_admin_reports_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码，从 1 起",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码，从 1 起"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页条数，上限 100",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页条数，上限 100"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReportStatus"
+                },
+                {
+                  "const": "all",
+                  "type": "string"
+                }
+              ],
+              "description": "按状态筛选：pending（默认）/ resolved / dismissed / all",
+              "default": "pending",
+              "title": "Status"
+            },
+            "description": "按状态筛选：pending（默认）/ resolved / dismissed / all"
+          },
+          {
+            "name": "target_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReportTargetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按目标类型筛选：question / answer",
+              "title": "Target Type"
+            },
+            "description": "按目标类型筛选：question / answer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/reports/{report_id}/resolve": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "管理员处置举报（仅 admin；支持 dismiss / close_question / soft_delete）",
+        "operationId": "resolve_report_api_v1_admin_reports__report_id__resolve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/users/{user_id}/reputation": {
@@ -1633,6 +2474,147 @@
   },
   "components": {
     "schemas": {
+      "AdminUserItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "ta",
+              "admin"
+            ],
+            "title": "Role"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "student_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Id"
+          },
+          "staff_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "college": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "College"
+          },
+          "class_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Name"
+          },
+          "email_verified": {
+            "type": "boolean",
+            "title": "Email Verified",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "email",
+          "display_name",
+          "created_at"
+        ],
+        "title": "AdminUserItem",
+        "description": "管理员用户列表项与角色变更响应白名单（F15，绝不含 password_hash）。"
+      },
+      "AdminUserListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "AdminUserListResponse",
+        "description": "GET /api/v1/admin/users 分页响应（F15）。"
+      },
       "AnswerResponse": {
         "properties": {
           "id": {
@@ -1666,6 +2648,34 @@
             "type": "boolean",
             "title": "Is Accepted"
           },
+          "is_teacher_verified": {
+            "type": "boolean",
+            "title": "Is Teacher Verified",
+            "default": false
+          },
+          "verified_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified By Name"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
           "comments": {
             "items": {
               "$ref": "#/components/schemas/CommentResponse"
@@ -1685,7 +2695,7 @@
           "is_accepted"
         ],
         "title": "AnswerResponse",
-        "description": "回答白名单（US-A01/A05）：votes 为净票数（v3 裁定 #1，可为负）。"
+        "description": "回答白名单（US-A01/A05 / F15）：votes 为净票数（v3 裁定 #1，可为负）。"
       },
       "AskQuestionRequest": {
         "properties": {
@@ -1708,6 +2718,18 @@
             "type": "array",
             "maxItems": 20,
             "title": "Tags"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           }
         },
         "additionalProperties": false,
@@ -1830,6 +2852,18 @@
             "maxLength": 5000,
             "minLength": 1,
             "title": "Body"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
           }
         },
         "additionalProperties": false,
@@ -1838,7 +2872,7 @@
           "body"
         ],
         "title": "CommentRequest",
-        "description": "评论请求体（US-C01）：正文复用 Body 值对象约束（v3 自裁：1~5000 字）。"
+        "description": "评论请求体（US-C01 / F14）：正文复用 Body 约束（1~5000 字），\n可选 parent_id 指向一级父评论。"
       },
       "CommentResponse": {
         "properties": {
@@ -1860,6 +2894,18 @@
             "type": "string",
             "title": "Author Name"
           },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1875,7 +2921,7 @@
           "created_at"
         ],
         "title": "CommentResponse",
-        "description": "评论白名单（按时间正序返回，1.3 功能域 9）。"
+        "description": "评论白名单（平铺按时间正序返回，1.3 功能域 9 / F14 D1）。"
       },
       "ConfirmEmailVerificationRequest": {
         "properties": {
@@ -1893,6 +2939,286 @@
         ],
         "title": "ConfirmEmailVerificationRequest",
         "description": "POST /api/v1/auth/me/verify-email/confirm 请求体（F10）。"
+      },
+      "CourseLeaderboardEntryResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "net_votes": {
+            "type": "integer",
+            "title": "Net Votes"
+          },
+          "answer_count": {
+            "type": "integer",
+            "title": "Answer Count"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "display_name",
+          "accepted_count",
+          "net_votes",
+          "answer_count",
+          "rank"
+        ],
+        "title": "CourseLeaderboardEntryResponse",
+        "description": "课程贡献排行榜条目（F17）。"
+      },
+      "CourseLeaderboardResponse": {
+        "properties": {
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "course_code": {
+            "type": "string",
+            "title": "Course Code"
+          },
+          "course_name": {
+            "type": "string",
+            "title": "Course Name"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CourseLeaderboardEntryResponse"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "course_id",
+          "course_code",
+          "course_name",
+          "entries"
+        ],
+        "title": "CourseLeaderboardResponse",
+        "description": "GET /api/v1/courses/{course_id}/leaderboard 响应（F17）。"
+      },
+      "CourseListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CourseResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "CourseListResponse",
+        "description": "课程列表分页响应。"
+      },
+      "CourseResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "semester": {
+            "type": "string",
+            "title": "Semester"
+          },
+          "teacher_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Teacher Id"
+          },
+          "teacher_name": {
+            "type": "string",
+            "title": "Teacher Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name",
+          "semester",
+          "teacher_id",
+          "teacher_name",
+          "created_at"
+        ],
+        "title": "CourseResponse",
+        "description": "课程响应白名单。"
+      },
+      "CourseStudentItem": {
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "enrolled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Enrolled At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "student_name",
+          "enrolled_at"
+        ],
+        "title": "CourseStudentItem",
+        "description": "课程选课学生条目（最小披露：不含邮箱/学工号/密码哈希）。"
+      },
+      "CourseStudentListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CourseStudentItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "CourseStudentListResponse",
+        "description": "课程选课学生列表分页响应。"
+      },
+      "CreateCourseRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "semester": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Semester"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "semester"
+        ],
+        "title": "CreateCourseRequest",
+        "description": "POST /api/v1/courses 请求体。"
+      },
+      "CreateReportRequest": {
+        "properties": {
+          "target_type": {
+            "$ref": "#/components/schemas/ReportTargetType"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 5,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_type",
+          "target_id",
+          "reason"
+        ],
+        "title": "CreateReportRequest",
+        "description": "POST /api/v1/reports 请求体（F18）。"
       },
       "EditAnswerRequest": {
         "properties": {
@@ -1938,12 +3264,62 @@
               }
             ],
             "title": "Body"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "EditQuestionRequest",
-        "description": "PATCH /api/v1/questions/{id} 请求体（US-Q08；裁定 D6：仅标题+正文，标签不可编辑）。\n\nPATCH 部分更新：title/body 均可选、至少给一个（模型级校验，缺失即 422 数组形）；\n给哪个改哪个，缺省侧沿用既有值（用例合并）。字符串形 422 由领域值对象兜底。"
+        "description": "PATCH /api/v1/questions/{id} 请求体（US-Q08；D6 仅标题+正文；F17 可选 course_id）。\n\nPATCH 部分更新：title/body/course_id 均可选、至少给一个（模型级校验，缺失即 422 数组形）；\n显式传 course_id: null 可解绑课程。"
+      },
+      "EnrollmentResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "course_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Course Id"
+          },
+          "student_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Student Id"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "enrolled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Enrolled At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "course_id",
+          "student_id",
+          "student_name",
+          "enrolled_at"
+        ],
+        "title": "EnrollmentResponse",
+        "description": "选课成功响应白名单。"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2346,6 +3722,29 @@
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
           },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
+          },
           "answers": {
             "items": {
               "$ref": "#/components/schemas/AnswerResponse"
@@ -2409,6 +3808,29 @@
           },
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
           }
         },
         "type": "object",
@@ -2421,7 +3843,7 @@
           "status"
         ],
         "title": "QuestionListItem",
-        "description": "列表条目白名单：不含正文（正文最长 5000 字，列表页不需要）与任何内部字段（S-12）。\n\ntags 为迭代 4 新增字段（增量、向后兼容）。"
+        "description": "列表条目白名单：不含正文（正文最长 5000 字，列表页不需要）与任何内部字段（S-12）。\n\ntags 为迭代 4 新增字段（增量、向后兼容）；course_* 为 F17 新增字段。"
       },
       "QuestionListResponse": {
         "properties": {
@@ -2498,6 +3920,29 @@
           },
           "status": {
             "$ref": "#/components/schemas/QuestionStatus"
+          },
+          "course_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Id"
+          },
+          "course_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course Name"
           }
         },
         "type": "object",
@@ -2511,7 +3956,7 @@
           "status"
         ],
         "title": "QuestionResponse",
-        "description": "问题响应白名单：不含任何内部字段。tags/status 为公开生命周期字段。"
+        "description": "问题响应白名单：不含任何内部字段。tags/status/course_* 为公开字段。"
       },
       "QuestionSort": {
         "type": "string",
@@ -2711,6 +4156,181 @@
         "title": "RegisterResponse",
         "description": "注册/当前用户响应：绝不包含密码任何形态。"
       },
+      "ReportAction": {
+        "type": "string",
+        "enum": [
+          "dismiss",
+          "close_question",
+          "soft_delete"
+        ],
+        "title": "ReportAction",
+        "description": "管理员处置动作（OCP 策略键）。"
+      },
+      "ReportListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReportResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "ReportListResponse",
+        "description": "GET /api/v1/admin/reports 分页响应（F18）。"
+      },
+      "ReportResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reporter_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reporter Id"
+          },
+          "reporter_name": {
+            "type": "string",
+            "title": "Reporter Name"
+          },
+          "target_type": {
+            "$ref": "#/components/schemas/ReportTargetType"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "resolution_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
+          },
+          "resolved_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "reporter_id",
+          "reporter_name",
+          "target_type",
+          "target_id",
+          "reason",
+          "status",
+          "created_at"
+        ],
+        "title": "ReportResponse",
+        "description": "举报工单响应白名单（F18）。"
+      },
+      "ReportStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "resolved",
+          "dismissed"
+        ],
+        "title": "ReportStatus",
+        "description": "举报工单状态机。"
+      },
+      "ReportTargetType": {
+        "type": "string",
+        "enum": [
+          "question",
+          "answer"
+        ],
+        "title": "ReportTargetType",
+        "description": "举报目标类型：定死为 question 与 answer（不含 comment）。"
+      },
       "ReputationEntryResponse": {
         "properties": {
           "source": {
@@ -2775,6 +4395,32 @@
         ],
         "title": "ReputationResponse",
         "description": "GET /api/v1/users/{user_id}/reputation 响应（v3.1 裁定 4：仅本人可见）。\n\nentries 不分页（v3.1 裁定：流水量小，对齐 GET /tags 惯例）。"
+      },
+      "ResolveReportRequest": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ReportAction"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ResolveReportRequest",
+        "description": "POST /api/v1/admin/reports/{report_id}/resolve 请求体（F18）。"
       },
       "TagListResponse": {
         "properties": {
@@ -2882,6 +4528,27 @@
         "type": "object",
         "title": "UpdateProfileRequest",
         "description": "PATCH /api/v1/auth/me/profile 请求体（F10）：空 body 422；显式 null 清空。"
+      },
+      "UpdateUserRoleRequest": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "student",
+              "teacher",
+              "ta",
+              "admin"
+            ],
+            "title": "Role"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "UpdateUserRoleRequest",
+        "description": "PATCH /api/v1/admin/users/{user_id}/role 请求体（F15）。"
       },
       "UserBadgesResponse": {
         "properties": {
