@@ -35,16 +35,23 @@
 | 检查项 | 命令 | 结果 |
 |:--|:--|:--|
 | Lint | `.venv\Scripts\ruff.exe check .` | `All checks passed!`（0 违规） |
-| 严格类型检查 | `.venv\Scripts\mypy.exe app` | `Success: no issues found in 182 source files` |
+| 严格类型检查 | `.venv\Scripts\mypy.exe app` | `Success: no issues found in 183 source files` |
 | 契约导出与防漂移 | `.venv\Scripts\python.exe scripts/export_openapi.py --check` | `openapi.json 与当前代码一致`（**41 paths / 48 operations**） |
-| 架构 + 契约测试 | `.venv\Scripts\pytest.exe tests/test_architecture.py tests/test_contract.py -q` | **20 passed**（4.56s，8 条 AST 护栏 0 违规） |
-| CI 单元回归 + 覆盖率 | `.venv\Scripts\pytest.exe -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70 -q` | **479 passed**, 238 deselected（19.51s）；TOTAL **84.44%** |
+| 架构 + 契约测试 | `.venv\Scripts\pytest.exe tests/test_architecture.py tests/test_contract.py -q` | **20 passed**（4.54s，8 条 AST 护栏 0 违规） |
+| CI 单元回归 + 覆盖率 | `.venv\Scripts\pytest.exe -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70 -q` | **479 passed**, 239 deselected（17.97s）；TOTAL **84.08%** |
 | 核心聚合覆盖率 | `.venv\Scripts\python.exe -m coverage report --include="*/domain/*" --fail-under=90` | **94%**（`qa/domain/{report,errors}.py` 均 **100%**） |
 | 隔离库迁移往返 | 独立临时库 `campus_mig_test` 执行 `f18_mig_roundtrip.py`（`upgrade head → downgrade -1 → upgrade head → check` + 表/约束/索引断言 + `DROP DATABASE`） | `78debaff54c7 (head)` → `13a011cb2db6` → `78debaff54c7 (head)`；`No new upgrade operations detected.`；临时库已销毁 |
 | 共享库备份与升级 | `docker exec campusoverflow-db-1 pg_dump -U campus campus > D:\a_work\_archive\db_backups\campus_pre_f18.sql`；`alembic upgrade head` / `current` / `check` | 备份 **10,434,012 B**（D 盘）；共享库平滑升至 `78debaff54c7 (head)`，`No new upgrade operations detected.` |
-| F18 定向集成 + 并发 2 轮 | `pytest tests/contexts/qa/infrastructure/test_report_repository.py tests/contexts/qa/interfaces/test_reports_api.py -v`（连续 2 轮） | 第 1 轮 **4 passed**（25.92s）/ 第 2 轮 **4 passed**（25.90s）；Auditor 复核 **4 passed × 2**（25.00s / 24.57s） |
-| 阶段 C（`v1.2.0`）全量真库集成回归 | `.venv\Scripts\pytest.exe -m integration -q`（真实 PG `15432` + Redis `16379`）；Auditor 另独立复测跨模块 **28 passed**（113.83s） | **238 passed**, 479 deselected（441.11s / 0:07:21；F01–F18 合计 **717 passed**；源码自全量跑通后零修改） |
-| 真实进程端到端冒烟 | 真实 `uvicorn app.main:app`（`127.0.0.1:18128` / Auditor 独立复核 `127.0.0.1:18130`）连真实 PG `15432` + Redis `16379` | Builder **40 HTTP 请求全绿** + Auditor **65 HTTP 请求全绿**（含 RBAC 401/403、默认 `pending` 与 `?status=all` 200、`?status=invalid` 422、重复举报 409、`dismiss`/再报、回答 `close_question` 422、`soft_delete` 全隐藏、带悬赏问题关/删退分及主干回归），0 HTTP 500 / 0 Traceback，测试数据 0 残留 |
+| F18 定向集成 + 并发 2 轮 | `pytest tests/contexts/qa/infrastructure/test_report_repository.py tests/contexts/qa/interfaces/test_reports_api.py -v`（连续 2 轮，含 `fix/f18-report-target-preview` 增量） | 第 1 轮 **5 passed**（25.81s）/ 第 2 轮 **5 passed**（26.08s）（前期 `feat/f18-reports-admin` 合入前 Auditor 复核 4 passed × 2） |
+| 阶段 C（`v1.2.0`）全量真库集成回归 | `.venv\Scripts\pytest.exe -m integration -q`（真实 PG `15432` + Redis `16379`）；Auditor 另独立复测跨模块 **28 passed**（113.83s） | **238 passed**, 479 deselected（441.11s / 0:07:21，F18 基线收口；F01–F18 合计 **717 passed**） |
+| 真实进程端到端冒烟 | 真实 `uvicorn app.main:app`（`127.0.0.1:18128`）连真实 PG `15432` + Redis `16379`（含目标预览字段全链路验证） | **41 HTTP 请求全绿**（含 RBAC 401/403、默认 `pending` 与 `?status=all` 200、`?status=invalid` 422、重复举报 409、`dismiss`/再报、回答 `close_question` 422、`soft_delete` 后仍带出 `target_body`/`target_question_id`/`target_title`/`target_is_deleted=True`、带悬赏问题关/删退分及主干回归），0 HTTP 500 / 0 Traceback，测试数据 0 残留 |
+
+### 2026-11-26 增量补齐：`fix/f18-report-target-preview`（零迁移）
+- **背景**：前端联调后台审核列表时，回答举报需要直接展示被举报回答正文（`target_body`）、所属问题 ID（`target_question_id`）及问题标题（`target_title`）与软删状态（`target_is_deleted`）。
+- **实现**：`qa/domain/repository.py` 新增 `ReportTargetPreview` 与 `ReportTargetPreviewReader`（ISP）；`qa/infrastructure/report_target_preview_reader.py` 实现 `SqlAlchemyReportTargetPreviewReader`（空输入 0 SQL，混合页至多 2 条 `IN` 查询，不按 `deleted_at` 过滤以便历史工单回溯）；`qa/interfaces/api/{deps,schemas,reports}.py` 注入依赖并统一在提交/列表/处置响应回填。
+- **测试补齐**：`tests/test_contract.py`、`test_reports_routes_unit.py`（含缺失目标回退 `None`）、`test_report_repository.py`（`test_report_target_preview_reader_sql_count_and_soft_delete` 实测 0 SQL / <=2 SQL）及 `test_reports_api.py`（断言问题/回答预览与软删后保留正文）。
+
+- **独立评测复核（2026-11-26）**：`F18 Target Preview Auditor` 独立验收 **`PASS`**（0 阻塞项）—— `ruff` 0、`mypy` 183 文件 0、架构+契约 20 passed（5.99s）、CI 单测 479 passed（TOTAL 84.08%，domain 94%）、`test_report_repository.py + test_reports_api.py` 连续 2 轮 **5 passed × 2**（26.79s / 26.91s）、真实 `uvicorn`（`127.0.0.1:18131`）**37 HTTP 请求**（含父问题软删连带子回答 `target_is_deleted=True` 与 `?status=all` 历史原正文回溯）零 500 / 零 Traceback / 0 残留。
 
 ### 测试数据知识来源（遵循真实知识测试数据规范）
 - PostgreSQL 部分唯一索引（Partial Indexes，`https://www.postgresql.org/docs/current/indexes-partial.html`）与 MVCC 行锁并发可见性（`https://www.postgresql.org/docs/current/mvcc.html`）。
@@ -68,4 +75,4 @@
 - [x] `openapi.json` 与 `tests/test_contract.py` 已同步且过 `--check`
 - [x] 5 份文档（本台账、`docs/PROGRESS.md`、`docs/plan/f-engineering-standard.md`、`README.md`、`docs/api/api-contract-notes.md`）口径一致
 - [x] 独立评测子代理终审通过（Auditor #2.3-R2：`PASS`，0 阻塞项）
-- [ ] 经用户批准提交推送 `feat/f18-reports-admin`、提 PR 及远端 CI 全绿后合入 `main`
+- [x] 经用户批准提交推送 `feat/f18-reports-admin`、提 PR 及远端 CI 全绿后合入 `main`（F18 基线 PR #10 `8159f70` 已合入；`fix/f18-report-target-preview` 增量补齐待用户批准提交 PR）

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
@@ -377,4 +378,24 @@ class ReportRepository(Protocol):
         resolved_at: datetime,
     ) -> Report:
         """条件抢占 pending 举报；不存在抛 404，已处置抛 409。"""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ReportTargetPreview:
+    """被举报对象的只读预览信息（F18 后台核查回填）。"""
+
+    question_id: UUID
+    title: str | None
+    body: str
+    is_deleted: bool
+
+
+class ReportTargetPreviewReader(Protocol):
+    """被举报目标批量只读预览端口（ISP，不膨胀 ReportRepository）。"""
+
+    async def get_previews(
+        self, targets: Iterable[tuple[ReportTargetType, UUID]]
+    ) -> dict[tuple[ReportTargetType, UUID], ReportTargetPreview]:
+        """按 (target_type, target_id) 批量读取目标正文、所属问题与软删状态。"""
         ...

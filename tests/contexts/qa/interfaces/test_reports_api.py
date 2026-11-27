@@ -539,6 +539,10 @@ async def test_admin_reports_list_filters_and_display_name_backfill(
             headers=_auth(student_no_nick["token"]),
         )
         assert r_dismiss.status_code == 201
+        assert r_dismiss.json()["target_question_id"] == qid
+        assert r_dismiss.json()["target_title"] == f"计算机网络 TCP 拥塞控制阶段切换 {suffix}"
+        assert r_dismiss.json()["target_body"] == "比较慢开始、拥塞避免与快恢复窗口变化。"
+        assert r_dismiss.json()["target_is_deleted"] is False
         rid_dismiss = r_dismiss.json()["id"]
         report_ids.append(uuid.UUID(rid_dismiss))
 
@@ -552,6 +556,10 @@ async def test_admin_reports_list_filters_and_display_name_backfill(
             headers=_auth(teacher["token"]),
         )
         assert r_resolve.status_code == 201
+        assert r_resolve.json()["target_question_id"] == qid
+        assert r_resolve.json()["target_title"] == f"计算机网络 TCP 拥塞控制阶段切换 {suffix}"
+        assert r_resolve.json()["target_body"] == "无关测试水贴回答内容。"
+        assert r_resolve.json()["target_is_deleted"] is False
         rid_resolve = r_resolve.json()["id"]
         report_ids.append(uuid.UUID(rid_resolve))
 
@@ -576,13 +584,16 @@ async def test_admin_reports_list_filters_and_display_name_backfill(
                 headers=_auth(admin["token"]),
             )
         ).status_code == 200
-        assert (
-            await client.post(
-                f"/api/v1/admin/reports/{rid_resolve}/resolve",
-                json={"action": "soft_delete", "note": "清理无关水贴"},
-                headers=_auth(admin["token"]),
-            )
-        ).status_code == 200
+        resolve_res = await client.post(
+            f"/api/v1/admin/reports/{rid_resolve}/resolve",
+            json={"action": "soft_delete", "note": "清理无关水贴"},
+            headers=_auth(admin["token"]),
+        )
+        assert resolve_res.status_code == 200
+        assert resolve_res.json()["target_question_id"] == qid
+        assert resolve_res.json()["target_title"] == f"计算机网络 TCP 拥塞控制阶段切换 {suffix}"
+        assert resolve_res.json()["target_body"] == "无关测试水贴回答内容。"
+        assert resolve_res.json()["target_is_deleted"] is True
 
         # 1. 默认（无 status 参数）仅返回 pending（不含 R1/R2）
         res_default = await client.get(
@@ -615,8 +626,17 @@ async def test_admin_reports_list_filters_and_display_name_backfill(
         assert set(all_items.keys()) == {rid_dismiss, rid_resolve, rid_pending}
         assert all_items[rid_dismiss]["reporter_name"].startswith("学生#")
         assert all_items[rid_dismiss]["resolved_by_name"] == "列表审核员"
+        assert all_items[rid_dismiss]["target_question_id"] == qid
+        assert all_items[rid_dismiss]["target_is_deleted"] is False
         assert all_items[rid_resolve]["reporter_name"] == "提问教师"
         assert all_items[rid_resolve]["resolved_by_name"] == "列表审核员"
+        assert all_items[rid_resolve]["target_question_id"] == qid
+        assert (
+            all_items[rid_resolve]["target_title"]
+            == f"计算机网络 TCP 拥塞控制阶段切换 {suffix}"
+        )
+        assert all_items[rid_resolve]["target_body"] == "无关测试水贴回答内容。"
+        assert all_items[rid_resolve]["target_is_deleted"] is True
 
         # 3. 组合筛选 status=resolved + target_type；status=dismissed；非法 422
         res_ans = await client.get(

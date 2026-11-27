@@ -35,6 +35,7 @@ from app.contexts.qa.domain.repository import (
     PointsRepository,
     QuestionRepository,
     ReportRepository,
+    ReportTargetPreviewReader,
     TagCatalogRepository,
     UserActivityRepository,
     VoteRepository,
@@ -48,6 +49,9 @@ from app.contexts.qa.infrastructure.course_leaderboard_repository import (
 from app.contexts.qa.infrastructure.points_repository import SqlAlchemyPointsRepository
 from app.contexts.qa.infrastructure.question_repository import SqlAlchemyQuestionRepository
 from app.contexts.qa.infrastructure.report_repository import SqlAlchemyReportRepository
+from app.contexts.qa.infrastructure.report_target_preview_reader import (
+    SqlAlchemyReportTargetPreviewReader,
+)
 from app.contexts.qa.infrastructure.tag_repository import SqlAlchemyTagCatalogRepository
 from app.contexts.qa.infrastructure.user_activity_repository import (
     SqlAlchemyUserActivityRepository,
@@ -143,6 +147,12 @@ def get_report_repository(session: SessionDep) -> ReportRepository:
     return SqlAlchemyReportRepository(session)
 
 
+def get_report_target_preview_reader(
+    session: SessionDep,
+) -> ReportTargetPreviewReader:
+    return SqlAlchemyReportTargetPreviewReader(session)
+
+
 QuestionRepo = Annotated[QuestionRepository, Depends(get_question_repository)]
 AnswerRepo = Annotated[AnswerRepository, Depends(get_answer_repository)]
 VoteRepo = Annotated[VoteRepository, Depends(get_vote_repository)]
@@ -165,3 +175,6 @@ CourseLeaderboardRepo = Annotated[
     CourseLeaderboardRepository, Depends(get_course_leaderboard_repository)
 ]
 ReportRepo = Annotated[ReportRepository, Depends(get_report_repository)]
+ReportTargetPreviewReaderDep = Annotated[
+    ReportTargetPreviewReader, Depends(get_report_target_preview_reader)
+]

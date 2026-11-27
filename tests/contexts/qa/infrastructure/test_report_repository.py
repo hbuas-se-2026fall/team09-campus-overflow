@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from app.contexts.identity.infrastructure.models import UserModel
 from app.contexts.qa.domain.errors import (
     DuplicatePendingReportError,
     ReportAlreadyResolvedError,
@@ -21,11 +22,18 @@ from app.contexts.qa.domain.report import (
     ReportTargetType,
     ResolutionNote,
 )
-from app.contexts.qa.infrastructure.models import ReportModel
+from app.contexts.qa.infrastructure.models import (
+    AnswerModel,
+    QuestionModel,
+    ReportModel,
+)
 from app.contexts.qa.infrastructure.report_repository import (
     SqlAlchemyReportRepository,
 )
-from app.shared.engine import session_factory
+from app.contexts.qa.infrastructure.report_target_preview_reader import (
+    SqlAlchemyReportTargetPreviewReader,
+)
+from app.shared.engine import engine, session_factory
 
 pytestmark = pytest.mark.integration
 
@@ -159,5 +167,118 @@ async def test_report_repository_partial_unique_check_and_conditional_resolve() 
         async with session_factory() as session:
             await session.execute(
                 delete(ReportModel).where(ReportModel.id.in_(created_ids))
+            )
+            await session.commit()
+
+
+async def test_report_target_preview_reader_sql_count_and_soft_delete() -> None:
+    """批量预览空输入 0 SQL、混合 batch <= 2 SQL，且保留软删对象正文。"""
+    from sqlalchemy import event
+
+    author_id = uuid.uuid4()
+    q_live_id = uuid.uuid4()
+    q_del_id = uuid.uuid4()
+    a_live_id = uuid.uuid4()
+    a_under_del_q_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    try:
+        async with session_factory() as session:
+            session.add(
+                UserModel(
+                    id=author_id,
+                    email=f"preview-{uuid.uuid4().hex[:8]}@campus.edu.cn",
+                    password_hash="$2b$12$abcdefghijklmnopqrstuv",
+                )
+            )
+            session.add_all(
+                [
+                    QuestionModel(
+                        id=q_live_id,
+                        title="操作系统页面置换算法 FIFO Belady 异常",
+                        body="为什么增加物理页帧反而可能提高缺页率？",
+                        author_id=author_id,
+                    ),
+                    QuestionModel(
+                        id=q_del_id,
+                        title="已被管理员软删除的历史问题标题",
+                        body="该历史问题正文在软删后仍可供工单回溯。",
+                        author_id=author_id,
+                        deleted_at=now,
+                    ),
+                ]
+            )
+            await session.flush()
+            session.add_all(
+                [
+                    AnswerModel(
+                        id=a_live_id,
+                        question_id=q_live_id,
+                        body="FIFO 不满足栈算法包含性，LRU 无此异常。",
+                        author_id=author_id,
+                        deleted_at=now,
+                    ),
+                    AnswerModel(
+                        id=a_under_del_q_id,
+                        question_id=q_del_id,
+                        body="父问题已软删的回答正文示例。",
+                        author_id=author_id,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        sql_log: list[str] = []
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):  # type: ignore[no-untyped-def]
+            sql_log.append(statement)
+
+        async with session_factory() as session:
+            reader = SqlAlchemyReportTargetPreviewReader(session)
+            event.listen(engine.sync_engine, "before_cursor_execute", _capture)
+            try:
+                assert await reader.get_previews([]) == {}
+                assert sql_log == []
+
+                batch = await reader.get_previews(
+                    [
+                        (ReportTargetType.QUESTION, q_live_id),
+                        (ReportTargetType.QUESTION, q_live_id),  # 重复去重
+                        (ReportTargetType.QUESTION, q_del_id),
+                        (ReportTargetType.ANSWER, a_live_id),
+                        (ReportTargetType.ANSWER, a_under_del_q_id),
+                    ]
+                )
+            finally:
+                event.remove(engine.sync_engine, "before_cursor_execute", _capture)
+
+        assert len(sql_log) == 2
+        q_live_prev = batch[(ReportTargetType.QUESTION, q_live_id)]
+        assert q_live_prev.question_id == q_live_id
+        assert q_live_prev.title == "操作系统页面置换算法 FIFO Belady 异常"
+        assert q_live_prev.body == "为什么增加物理页帧反而可能提高缺页率？"
+        assert q_live_prev.is_deleted is False
+
+        q_del_prev = batch[(ReportTargetType.QUESTION, q_del_id)]
+        assert q_del_prev.body == "该历史问题正文在软删后仍可供工单回溯。"
+        assert q_del_prev.is_deleted is True
+
+        a_live_prev = batch[(ReportTargetType.ANSWER, a_live_id)]
+        assert a_live_prev.question_id == q_live_id
+        assert a_live_prev.title == "操作系统页面置换算法 FIFO Belady 异常"
+        assert a_live_prev.body == "FIFO 不满足栈算法包含性，LRU 无此异常。"
+        assert a_live_prev.is_deleted is True
+
+        a_under_del_prev = batch[(ReportTargetType.ANSWER, a_under_del_q_id)]
+        assert a_under_del_prev.question_id == q_del_id
+        assert a_under_del_prev.title == "已被管理员软删除的历史问题标题"
+        assert a_under_del_prev.is_deleted is True
+    finally:
+        async with session_factory() as session:
+            await session.execute(
+                delete(QuestionModel).where(QuestionModel.id.in_([q_live_id, q_del_id]))
+            )
+            await session.execute(
+                delete(UserModel).where(UserModel.id == author_id)
             )
             await session.commit()

@@ -39,12 +39,17 @@ from app.contexts.qa.domain.report import (
     ReportTargetType,
     ResolutionNote,
 )
-from app.contexts.qa.domain.repository import QuestionFilter, QuestionSort
+from app.contexts.qa.domain.repository import (
+    QuestionFilter,
+    QuestionSort,
+    ReportTargetPreview,
+)
 from app.contexts.qa.interfaces.api.deps import (
     get_answer_repository,
     get_bounty_service,
     get_question_repository,
     get_report_repository,
+    get_report_target_preview_reader,
 )
 from app.main import create_app
 
@@ -202,6 +207,38 @@ class _FakeSummaryReader:
         return {uid: self._map[uid] for uid in user_ids if uid in self._map}
 
 
+class _FakePreviewReader:
+    def __init__(self, q_repo: _FakeQRepo, a_repo: _FakeARepo) -> None:
+        self._q_repo = q_repo
+        self._a_repo = a_repo
+
+    async def get_previews(
+        self, targets: Iterable[tuple[ReportTargetType, UUID]]
+    ) -> dict[tuple[ReportTargetType, UUID], ReportTargetPreview]:
+        out: dict[tuple[ReportTargetType, UUID], ReportTargetPreview] = {}
+        for target_type, target_id in targets:
+            if target_type is ReportTargetType.QUESTION:
+                q = self._q_repo.items.get(target_id)
+                if q is not None:
+                    out[(target_type, target_id)] = ReportTargetPreview(
+                        question_id=q.id,
+                        title=q.title.value,
+                        body=q.body.value,
+                        is_deleted=q.is_deleted,
+                    )
+            elif target_type is ReportTargetType.ANSWER:
+                a = self._a_repo.items.get(target_id)
+                if a is not None:
+                    q = self._q_repo.items.get(a.question_id)
+                    out[(target_type, target_id)] = ReportTargetPreview(
+                        question_id=a.question_id,
+                        title=q.title.value if q is not None else None,
+                        body=a.body.value,
+                        is_deleted=a.is_deleted or (q.is_deleted if q is not None else False),
+                    )
+        return out
+
+
 async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
     student = _user("student", nickname="普通学生")
     teacher = _user("teacher", nickname="授课教师")
@@ -219,6 +256,7 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
     a_repo = _FakeARepo([ans])
     r_repo = _FakeReportRepo()
     summary_reader = _FakeSummaryReader([student, teacher, ta, admin])
+    preview_reader = _FakePreviewReader(q_repo, a_repo)
     current_user: list[User] = [student]
 
     app = create_app()
@@ -228,6 +266,7 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
     app.dependency_overrides[get_report_repository] = lambda: r_repo
     app.dependency_overrides[get_bounty_service] = lambda: None
     app.dependency_overrides[get_user_summary_reader] = lambda: summary_reader
+    app.dependency_overrides[get_report_target_preview_reader] = lambda: preview_reader
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -288,6 +327,10 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
         )
         assert rep_q.status_code == 201
         assert rep_q.json()["reporter_name"] == "普通学生"
+        assert rep_q.json()["target_question_id"] == str(q.id)
+        assert rep_q.json()["target_title"] == "编译原理 LL(1) 文法左递归消除"
+        assert rep_q.json()["target_body"] == "待审核问题内容。"
+        assert rep_q.json()["target_is_deleted"] is False
         rep_q_id = rep_q.json()["id"]
 
         assert (
@@ -311,6 +354,10 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
             },
         )
         assert rep_a.status_code == 201
+        assert rep_a.json()["target_question_id"] == str(q.id)
+        assert rep_a.json()["target_title"] == "编译原理 LL(1) 文法左递归消除"
+        assert rep_a.json()["target_body"] == "待审核回答内容。"
+        assert rep_a.json()["target_is_deleted"] is False
         rep_a_id = rep_a.json()["id"]
 
         # 4. admin 默认 pending 查询 + 处置（close_question 422；dismiss/soft_delete 200）
@@ -340,6 +387,10 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
         assert resolved_a.json()["status"] == "resolved"
         assert resolved_a.json()["resolved_by_name"] == "系统管理员"
         assert resolved_a.json()["resolution_note"] == "删除垃圾回答"
+        assert resolved_a.json()["target_question_id"] == str(q.id)
+        assert resolved_a.json()["target_title"] == "编译原理 LL(1) 文法左递归消除"
+        assert resolved_a.json()["target_body"] == "待审核回答内容。"
+        assert resolved_a.json()["target_is_deleted"] is True
 
         dismissed_q = await client.post(
             f"/api/v1/admin/reports/{rep_q_id}/resolve",
@@ -354,6 +405,11 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
         all_resp = await client.get("/api/v1/admin/reports", params={"status": "all"})
         assert all_resp.status_code == 200
         assert all_resp.json()["total"] == 2
+        all_by_id = {item["id"]: item for item in all_resp.json()["items"]}
+        assert all_by_id[rep_a_id]["target_question_id"] == str(q.id)
+        assert all_by_id[rep_a_id]["target_is_deleted"] is True
+        assert all_by_id[rep_q_id]["target_question_id"] == str(q.id)
+        assert all_by_id[rep_q_id]["target_is_deleted"] is False
         res_resp = await client.get("/api/v1/admin/reports", params={"status": "resolved"})
         assert res_resp.status_code == 200
         assert [item["id"] for item in res_resp.json()["items"]] == [rep_a_id]
@@ -363,3 +419,14 @@ async def test_reports_routes_rbac_validation_and_resolution_unit() -> None:
         assert (
             await client.get("/api/v1/admin/reports", params={"status": "unknown"})
         ).status_code == 422
+
+        # 6. 目标对象缺失时，4 个预览字段安全回退为 None
+        q_repo.items.clear()
+        a_repo.items.clear()
+        missing_resp = await client.get("/api/v1/admin/reports", params={"status": "all"})
+        assert missing_resp.status_code == 200
+        for item in missing_resp.json()["items"]:
+            assert item["target_question_id"] is None
+            assert item["target_title"] is None
+            assert item["target_body"] is None
+            assert item["target_is_deleted"] is None

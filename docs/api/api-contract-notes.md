@@ -219,6 +219,11 @@
     - `dismiss`（问题 / 回答）：流转为 `"dismissed"`，不改动原内容（目标已删亦可驳回）；
     - `close_question`（仅问题）：关闭开放且无采纳答案的问题并退还开放悬赏，流转为 `"resolved"`；问题已关闭或已有采纳答案 → **409**（保持 `pending`）；作用于回答 → **422**（`detail: "仅问题类型举报支持关闭问题动作"`）；
     - `soft_delete`（问题 / 回答）：软删除未采纳的问题（同时退还开放悬赏）或回答，流转为 `"resolved"`；目标已有采纳关系或自身已采纳 → **409**；目标已不存在/已软删 → **404**（上述失败均整事务回滚，举报维持 `pending`）。
+- **`ReportResponse` 目标预览增量字段（向后兼容可空，零 N+1 批量回填）**：
+  - `target_question_id: UUID | null`：举报类型为 `"question"` 时等于问题 ID；为 `"answer"` 时等于所属问题 ID（供后台直达所属问题详情页）；
+  - `target_title: string | null`：举报类型为 `"question"` 时为问题标题，为 `"answer"` 时为所属问题标题；
+  - `target_body: string | null`：问题举报为问题正文，回答举报为被举报回答正文；
+  - `target_is_deleted: boolean | null`：目标是否已被软删除（回答举报当回答本身或所属问题任一已软删时为 `true`）；历史已完结/软删工单仍保留原正文与标题供回溯，目标物理缺失时四字段回退为 `null`。
 
 ## 五、开发期调试入口
 

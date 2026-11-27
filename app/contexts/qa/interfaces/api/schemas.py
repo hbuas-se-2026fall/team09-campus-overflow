@@ -332,6 +332,10 @@ class ReportResponse(BaseModel):
     reporter_name: str
     target_type: ReportTargetType
     target_id: UUID
+    target_question_id: UUID | None = None
+    target_title: str | None = None
+    target_body: str | None = None
+    target_is_deleted: bool | None = None
     reason: str
     status: ReportStatus
     resolution_action: ReportAction | None = None

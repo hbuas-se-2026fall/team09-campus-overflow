@@ -28,11 +28,13 @@ from app.contexts.qa.application.report_resolution_handlers import (
 )
 from app.contexts.qa.application.resolve_report_use_case import ResolveReportUseCase
 from app.contexts.qa.domain.report import Report, ReportStatus, ReportTargetType
+from app.contexts.qa.domain.repository import ReportTargetPreview
 from app.contexts.qa.interfaces.api.deps import (
     AnswerRepo,
     BountyServiceDep,
     QuestionRepo,
     ReportRepo,
+    ReportTargetPreviewReaderDep,
 )
 from app.contexts.qa.interfaces.api.schemas import (
     CreateReportRequest,
@@ -50,6 +52,7 @@ def _report_response(
     *,
     reporter_name: str,
     resolved_by_name: str | None = None,
+    preview: ReportTargetPreview | None = None,
 ) -> ReportResponse:
     return ReportResponse(
         id=report.id,
@@ -57,6 +60,10 @@ def _report_response(
         reporter_name=reporter_name,
         target_type=report.target_type,
         target_id=report.target_id,
+        target_question_id=preview.question_id if preview is not None else None,
+        target_title=preview.title if preview is not None else None,
+        target_body=preview.body if preview is not None else None,
+        target_is_deleted=preview.is_deleted if preview is not None else None,
         reason=report.reason.value,
         status=report.status,
         resolution_action=report.resolution_action,
@@ -71,7 +78,9 @@ def _report_response(
 
 
 def _format_with_summaries(
-    report: Report, summaries: dict[UUID, UserSummary]
+    report: Report,
+    summaries: dict[UUID, UserSummary],
+    previews: dict[tuple[ReportTargetType, UUID], ReportTargetPreview],
 ) -> ReportResponse:
     resolved_by_name = (
         pick_summary_display_name(summaries, report.resolved_by)
@@ -82,6 +91,7 @@ def _format_with_summaries(
         report,
         reporter_name=pick_summary_display_name(summaries, report.reporter_id),
         resolved_by_name=resolved_by_name,
+        preview=previews.get((report.target_type, report.target_id)),
     )
 
 
@@ -97,6 +107,7 @@ async def create_report(
     reports: ReportRepo,
     questions: QuestionRepo,
     answers: AnswerRepo,
+    preview_reader: ReportTargetPreviewReaderDep,
 ) -> ReportResponse:
     report = await CreateReportUseCase(reports, questions, answers).execute(
         CreateReportCommand(
@@ -106,7 +117,14 @@ async def create_report(
             reason=payload.reason,
         )
     )
-    return _report_response(report, reporter_name=user.display_name)
+    previews = await preview_reader.get_previews(
+        [(report.target_type, report.target_id)]
+    )
+    return _report_response(
+        report,
+        reporter_name=user.display_name,
+        preview=previews.get((report.target_type, report.target_id)),
+    )
 
 
 @admin_reports_router.get(
@@ -118,6 +136,7 @@ async def list_reports(
     _admin: AdminUser,
     reports: ReportRepo,
     summary_reader: UserSummaryReaderDep,
+    preview_reader: ReportTargetPreviewReaderDep,
     page: Annotated[int, Query(ge=1, description="页码，从 1 起")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页条数，上限 100")] = 20,
     status_filter: Annotated[
@@ -147,8 +166,13 @@ async def list_reports(
         if item.resolved_by is not None:
             user_ids.append(item.resolved_by)
     summaries = await summary_reader.get_summaries(user_ids)
+    previews = await preview_reader.get_previews(
+        [(item.target_type, item.target_id) for item in result.items]
+    )
     return ReportListResponse(
-        items=[_format_with_summaries(item, summaries) for item in result.items],
+        items=[
+            _format_with_summaries(item, summaries, previews) for item in result.items
+        ],
         total=result.total,
         page=result.page,
         page_size=result.page_size,
@@ -170,6 +194,7 @@ async def resolve_report(
     answers: AnswerRepo,
     bounty_service: BountyServiceDep,
     summary_reader: UserSummaryReaderDep,
+    preview_reader: ReportTargetPreviewReaderDep,
 ) -> ReportResponse:
     handlers = build_report_resolution_handlers(
         question_repo=questions,
@@ -185,8 +210,12 @@ async def resolve_report(
         )
     )
     summaries = await summary_reader.get_summaries([resolved.reporter_id])
+    previews = await preview_reader.get_previews(
+        [(resolved.target_type, resolved.target_id)]
+    )
     return _report_response(
         resolved,
         reporter_name=pick_summary_display_name(summaries, resolved.reporter_id),
         resolved_by_name=admin.display_name,
+        preview=previews.get((resolved.target_type, resolved.target_id)),
     )
